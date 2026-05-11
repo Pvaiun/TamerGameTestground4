@@ -8,7 +8,10 @@
 const KEY = 'bloodlines.save.v1';
 
 const STARTING_WOUNDS  = ['amnesia', 'insomnia', 'absence'];
-const STARTING_PATIENTS = ['pram', 'pyrelord', 'soothlick', 'glimmer', 'frostfin'];
+// The final encounter (choir) is always available — it's the room at the
+// end of the corridor, not a wing patient — so it lives in the starting
+// pool and never appears in UNLOCK_LADDER.
+const STARTING_PATIENTS = ['pram', 'pyrelord', 'soothlick', 'glimmer', 'frostfin', 'choir'];
 
 export function defaultSave() {
   return {
@@ -71,7 +74,6 @@ export function recordRunOutcome(save, payload) {
     { at: 1, wounds: ['witness'],  patients: ['mire']    },
     { at: 2, wounds: ['devotion'], patients: ['hollow']  },
     { at: 3, wounds: ['hollow'],   patients: ['composer']},
-    { at: 5, wounds: [],           patients: ['choir']   },
   ];
   for (const tier of UNLOCK_LADDER) {
     if (save.runs >= tier.at) {

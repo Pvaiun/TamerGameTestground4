@@ -10,7 +10,7 @@ import { TRAITS } from '../traits.js';
 import { PATIENTS } from '../patients.js';
 import { startNewRun, enterCurrentNode, currentNode, applyResolutionAndAdvance, applyEventEffect, advanceRun, endRun } from '../run.js';
 import { EVENTS } from '../events.js';
-import { chooseResolution } from '../combat.js';
+import { SCARS } from '../scars.js';
 import { VERSION } from '../version.js';
 
 // ── helpers ─────────────────────────────────────────────────────────────
@@ -229,20 +229,47 @@ function playerStatusEl(player) {
     el('span', { class: 'corridor-status-meta' }, w ? w.name : 'unmarked'),
   ]));
   wrap.appendChild(el('div', { class: 'corridor-status-body' }, [
-    el('span', { class: 'corridor-status-cell' }, `hp ${player.hp}/${player.maxHp}`),
-    el('span', { class: 'corridor-status-cell' }, `composure ${player.composure}`),
+    el('span', { class: 'corridor-status-cell' }, `composure ${player.composure}/${player.composureMax}`),
     el('span', { class: 'corridor-status-cell' }, `traits ${player.traits.length}`),
+    el('span', { class: 'corridor-status-cell' }, `scars ${(player.scars || []).length}`),
   ]));
-  // show trait names
+
+  // signature (always shown so the player remembers what their once-per-fight does)
+  if (w && w.signature && TRAITS[w.signature]) {
+    const sig = TRAITS[w.signature];
+    const sigRow = el('div', { class: 'corridor-trait-row sig' });
+    sigRow.appendChild(el('span', { class: 'corridor-trait-tag' }, 'signature'));
+    sigRow.appendChild(el('span', { class: 'corridor-trait-name' }, sig.name));
+    sigRow.appendChild(el('span', { class: 'corridor-trait-desc' }, sig.desc));
+    wrap.appendChild(sigRow);
+  }
+
+  // collected traits — name + desc on each row.
   if (player.traits.length) {
-    const t = el('div', { class: 'corridor-status-traits' });
+    wrap.appendChild(el('div', { class: 'corridor-trait-list-label' }, '─ what I carry ─'));
     for (const tid of player.traits) {
       const tt = TRAITS[tid];
       if (!tt) continue;
-      t.appendChild(el('span', { class: 'corridor-trait', title: tt.desc }, tt.name));
+      const row = el('div', { class: 'corridor-trait-row' });
+      row.appendChild(el('span', { class: 'corridor-trait-name' }, tt.name));
+      row.appendChild(el('span', { class: 'corridor-trait-desc' }, tt.desc));
+      wrap.appendChild(row);
     }
-    wrap.appendChild(t);
   }
+
+  // scars — visible, named, with their meaning.
+  const scars = (player.scars || []).filter(s => SCARS[s]);
+  if (scars.length) {
+    wrap.appendChild(el('div', { class: 'corridor-trait-list-label' }, '─ what stayed ─'));
+    for (const sid of scars) {
+      const s = SCARS[sid];
+      const row = el('div', { class: 'corridor-trait-row scar' });
+      row.appendChild(el('span', { class: 'corridor-trait-name' }, s.name));
+      row.appendChild(el('span', { class: 'corridor-trait-desc' }, s.desc));
+      wrap.appendChild(row);
+    }
+  }
+
   return wrap;
 }
 
@@ -301,13 +328,17 @@ export function renderEventAfter() {
   app().appendChild(page);
 }
 
-// ── resolution (after winning an encounter) ─────────────────────────────
+// ── resolution (after an encounter resolves) ────────────────────────────
+//
+// Endings are determined by the encounter itself (the patient's scales
+// crossed a threshold). The resolution screen shows: which ending fired,
+// what trait you keep, what scars you carry forward.
 export function renderResolution() {
   const enc = state.enc;
   if (!enc) return;
   const patient = enc.patient;
   app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
-  const page = docPage(`// resolution · file ${patient.id} · the room is quiet`);
+  const page = docPage(`// resolution · file ${patient.id}`);
 
   // dossier head
   const head = el('div', { class: 'resolution-head' });
@@ -320,48 +351,50 @@ export function renderResolution() {
   head.appendChild(headText);
   page.appendChild(head);
 
-  if (!enc.resolution) {
-    page.appendChild(prose('the room is quiet now. she is down. she is not gone.', false));
-    page.appendChild(sectionLabel('how I close the file'));
-    const choices = el('div', { class: 'event-choices' });
-    for (const key of ['soothe', 'hold', 'listen']) {
-      const r = patient.def.resolutions[key];
-      if (!r) continue;
-      const trait = TRAITS[r.trait];
-      const btn = el('button', { class: 'event-choice resolution-choice' });
-      btn.appendChild(el('span', { class: 'event-choice-marker' }, '▸'));
-      btn.appendChild(el('span', { class: 'event-choice-label' }, r.label));
-      if (trait) {
-        btn.appendChild(el('span', { class: 'resolution-trait-hint' }, [
-          el('span', { class: 'resolution-trait-name' }, trait.name),
-          el('span', { class: 'resolution-trait-desc' }, ` · ${trait.desc}`),
-        ]));
-      }
-      btn.addEventListener('click', () => { sfx('select'); chooseResolution(key); });
-      choices.appendChild(btn);
-    }
-    page.appendChild(choices);
-  } else {
-    // show the resolution prose, then continue
-    const r = enc.resolution.res;
-    page.appendChild(el('div', { class: 'doc-prose resolution-prose', html: parseProse(r.prose) }));
-    const trait = TRAITS[r.trait];
-    if (trait) {
-      const taken = el('div', { class: 'resolution-trait-taken' });
-      taken.appendChild(el('div', { class: 'enc-section-label' }, '─ what I keep ─'));
-      taken.appendChild(el('div', { class: 'resolution-trait-name' }, trait.name));
-      taken.appendChild(el('div', { class: 'resolution-trait-voice', html: parseProse(trait.voice || '') }));
-      taken.appendChild(el('div', { class: 'resolution-trait-desc' }, trait.desc));
-      page.appendChild(taken);
-    }
-    const isFinal = patient.def.role === 'final';
-    page.appendChild(actionRow(docButton(isFinal ? 'leave' : 'walk on', () => {
-      sfx('select');
-      // applyResolutionAndAdvance handles end-of-run via advanceRun → endRun.
-      applyResolutionAndAdvance();
-      import('./render.js').then(m => m.render());
-    })));
+  // ending title
+  if (enc.endingTitle) {
+    page.appendChild(el('div', { class: 'resolution-title' }, [
+      el('span', { class: 'resolution-title-mark' }, '— '),
+      el('span', { class: 'resolution-title-text', html: parseProse(enc.endingTitle) }),
+      el('span', { class: 'resolution-title-mark' }, ' —'),
+    ]));
   }
+
+  // trait kept
+  const trait = enc.pendingTrait ? TRAITS[enc.pendingTrait] : null;
+  if (trait) {
+    const taken = el('div', { class: 'resolution-trait-taken' });
+    taken.appendChild(el('div', { class: 'enc-section-label' }, '─ what I keep ─'));
+    taken.appendChild(el('div', { class: 'resolution-trait-name' }, trait.name));
+    taken.appendChild(el('div', { class: 'resolution-trait-voice', html: parseProse(trait.voice || '') }));
+    taken.appendChild(el('div', { class: 'resolution-trait-desc' }, trait.desc));
+    page.appendChild(taken);
+  } else {
+    page.appendChild(el('div', { class: 'doc-prose dim' },
+      'no trait this time. ~~the room~~ the room did not give me one.'));
+  }
+
+  // scars carried forward
+  const scars = (enc.pendingScars || []).filter(s => SCARS[s]);
+  if (scars.length) {
+    const scarWrap = el('div', { class: 'resolution-scars' });
+    scarWrap.appendChild(el('div', { class: 'enc-section-label' }, '─ what stayed ─'));
+    for (const sid of scars) {
+      const s = SCARS[sid];
+      const row = el('div', { class: 'resolution-scar-row' });
+      row.appendChild(el('span', { class: 'resolution-scar-name' }, s.name));
+      row.appendChild(el('span', { class: 'resolution-scar-desc' }, s.desc));
+      scarWrap.appendChild(row);
+    }
+    page.appendChild(scarWrap);
+  }
+
+  const isFinal = patient.def.role === 'final';
+  page.appendChild(actionRow(docButton(isFinal ? 'leave' : 'walk on', () => {
+    sfx('select');
+    applyResolutionAndAdvance();
+    import('./render.js').then(m => m.render());
+  })));
   app().appendChild(page);
 }
 
@@ -394,14 +427,14 @@ export function renderArchive() {
     if (summary.resolutions.length) {
       const list = el('div', { class: 'archive-resolutions' });
       for (const r of summary.resolutions) {
-        const t = TRAITS[r.trait];
+        const t = r.trait ? TRAITS[r.trait] : null;
         const p = PATIENTS[r.patient];
         list.appendChild(el('div', { class: 'archive-res-line' }, [
           el('span', { class: 'archive-res-patient' }, p ? p.name : `[${r.patient}]`),
           el('span', { class: 'archive-res-sep' }, ' · '),
-          el('span', { class: 'archive-res-key' }, r.key),
+          el('span', { class: 'archive-res-key' }, r.endingTitle || r.endingId || '—'),
           el('span', { class: 'archive-res-sep' }, ' · '),
-          el('span', { class: 'archive-res-trait' }, t ? t.name : (r.trait || '—')),
+          el('span', { class: 'archive-res-trait' }, t ? t.name : 'no trait'),
         ]));
       }
       page.appendChild(list);

@@ -5,7 +5,8 @@
 
 import { state, RUN_DEPTH } from './state.js';
 import { pick, pickN, randi } from './rng.js';
-import { makePlayer, beginEncounter, addTrait, recomputePlayerStats } from './combat.js';
+import { makePlayer, beginEncounter, addTrait, recomputePlayerStats, acknowledgeResolution } from './combat.js';
+import { COMPOSURE_MAX } from './state.js';
 import { PATIENTS, getPatient } from './patients.js';
 import { EVENTS, pickEventPool } from './events.js';
 import { recordRunOutcome } from './save.js';
@@ -27,7 +28,7 @@ export function startNewRun(wound) {
   // build the corridor: alternate event-patient through RUN_DEPTH wings,
   // ending with the final boss.
   const patientPool = save.unlocked.patients.filter(id => PATIENTS[id]);
-  const finalId = save.unlocked.patients.includes('choir') ? 'choir' : 'choir';   // final is fixed; falls back gracefully
+  const finalId = 'choir';   // the final is always the choir; not a wing patient.
   // exclude the final from the wing patient pool. Sample without replacement,
   // then sort by tier ascending so easier patients arrive first. (Wing 1 is
   // the player's onboarding fight.)
@@ -103,25 +104,30 @@ function fireCorridorHooks(player) {
     if (!t || !t.hooks || !t.hooks.onCorridorEntry) continue;
     const ctx = {
       player,
-      healOutOfCombat: (n) => { player.hp = Math.min(player.maxHp, player.hp + n); },
+      healOutOfCombat: (n) => {
+        player.composure = Math.min(player.composureMax, (player.composure || 0) + n);
+      },
     };
     try { t.hooks.onCorridorEntry(ctx); } catch (e) { console.error('trait corridor hook', tid, e); }
   }
 }
 
-// Player chose a resolution after winning a patient encounter. Grant the
-// trait, mark the run log, and advance.
+// The encounter resolved with an ending. acknowledgeResolution applies the
+// pending trait + scars to the player (filtered by trait hooks like
+// redacted), and we record the resolution for the archive.
 export function applyResolutionAndAdvance() {
   const enc = state.enc;
-  if (!enc || !enc.resolution) return;
-  const trait = enc.resolution.res.trait;
-  if (trait) addTrait(state.run.player, trait);
+  if (!enc) return;
+  const trait = enc.pendingTrait;
+  const ending = enc.endingId;
+  acknowledgeResolution();
   state.run.resolutionsTaken.push({
     patient: enc.patient.id,
-    key: enc.resolution.key,
+    endingId: ending,
+    endingTitle: enc.endingTitle || ending,
     trait,
+    scars: [...(enc.pendingScars || [])],
   });
-  state.run.player.hp = Math.max(state.run.player.hp, Math.ceil(state.run.player.maxHp * 0.5));
   state.enc = null;
   advanceRun();
 }

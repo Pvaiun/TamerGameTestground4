@@ -1,10 +1,18 @@
-// Corridor events — single-screen vignettes between patient encounters. Each
-// presents a brief scene (third-person clinical or first-person, varies) and
-// 2-3 choices. Each choice can have an effect on the player (heal, trait,
-// hp loss, status, etc.) and writes a line to the run log.
+// Corridor events — short vignettes between patient encounters. Each event
+// presents a scene and 2-3 choices. Each choice carries an `effect(player,
+// run)` that mutates the player (composure, scars, traits, signature uses).
+//
+// The new combat has no HP — composure and scars are the only durable
+// run-scale resources. Events shape both.
 
 import { pick, pickN } from './rng.js';
 import { addTrait } from './combat.js';
+import { applyScar } from './scars.js';
+import { COMPOSURE_MAX } from './state.js';
+
+function bumpComposure(p, n) {
+  p.composure = Math.max(0, Math.min(p.composureMax || COMPOSURE_MAX, (p.composure || 0) + n));
+}
 
 export const EVENTS = {
 
@@ -21,8 +29,8 @@ export const EVENTS = {
       {
         key: 'take',
         label: 'Take what she offers',
-        prose: 'I take it. it is warm. it does not weigh much. I feel better, somewhere.',
-        effect(p) { p.hp = Math.min(p.maxHp, p.hp + 4); },
+        prose: 'I take it. it is warm. it does not weigh much. ~~I~~ I feel restored, somewhere.',
+        effect(p) { bumpComposure(p, 3); },
       },
       {
         key: 'refuse',
@@ -33,8 +41,8 @@ export const EVENTS = {
       {
         key: 'sign',
         label: 'Sign the page she has not turned',
-        prose: 'I sign. the page is mine. the pen is ~~hers~~ mine. I feel resolved.',
-        effect(p) { p.composure = Math.min(5, (p.composure || 0) + 2); p._startComposureNext = (p._startComposureNext || 0) + 1; },
+        prose: 'I sign. the page is mine. the pen is ~~hers~~ mine. I feel resolved. !!and a little less my own.!!',
+        effect(p) { bumpComposure(p, 2); applyScar(p, 'named'); },
       },
     ],
   },
@@ -53,10 +61,7 @@ export const EVENTS = {
         key: 'read',
         label: 'Read the file',
         prose: 'I read it through. some of it is true. some of it is becoming true.',
-        effect(p, run) {
-          // grants a small but lasting effect; mark in run log
-          run._readSelf = true;
-        },
+        effect(p, run) { run._readSelf = true; bumpComposure(p, 1); },
       },
       {
         key: 'leave',
@@ -68,7 +73,7 @@ export const EVENTS = {
         key: 'rewrite',
         label: 'Rewrite the third page',
         prose: 'I scratch out the line. I write another. the page does not ~~object~~ resist. !!I do not recognize my own hand.!!',
-        effect(p) { p.hp = Math.min(p.maxHp, p.hp + 2); p.maxHp += 1; },
+        effect(p) { addTrait(p, 'unfinished'); applyScar(p, 'witnessed'); },
       },
     ],
   },
@@ -86,19 +91,22 @@ export const EVENTS = {
         key: 'wait',
         label: 'Wait for myself',
         prose: 'I wait. the other me passes. we do not nod.',
-        effect(p) { p.composure = Math.min(5, p.composure + 3); },
+        effect(p) { bumpComposure(p, 3); },
       },
       {
         key: 'follow',
         label: 'Step through',
         prose: 'I step through. the room composes itself behind me. ~~the corridor I came from is gone~~ I am where I was.',
-        effect(p) { p.maxHp = Math.max(1, p.maxHp - 1); p.hp = Math.min(p.maxHp, p.hp); p._smallSignatureExtra = true; if (p.signature) p.signature.usesLeft++; },
+        effect(p) {
+          if (p.signature) p.signature.usesLeft++;
+          applyScar(p, 'witnessed');
+        },
       },
       {
         key: 'shatter',
         label: 'Strike it',
         prose: 'I strike the glass. it does not break. !!my hand does.!!',
-        effect(p) { p.hp = Math.max(1, p.hp - 2); p.composure = 5; },
+        effect(p) { bumpComposure(p, -1); applyScar(p, 'collapsed'); },
       },
     ],
   },
@@ -122,8 +130,8 @@ export const EVENTS = {
       {
         key: 'forget',
         label: 'Forget it on purpose',
-        prose: 'I let it go before I am asked to. the corridor is cleaner.',
-        effect(p) { p.hp = Math.min(p.maxHp, p.hp + 3); },
+        prose: 'I let it go before I am asked to. the corridor is cleaner. ~~I~~ I am calmer for it.',
+        effect(p) { bumpComposure(p, 3); },
       },
     ],
   },
@@ -146,8 +154,8 @@ export const EVENTS = {
       {
         key: 'lie',
         label: 'Write something better',
-        prose: 'I write something kinder than the truth. the page accepts it more readily. I am !!more here than I should be!!.',
-        effect(p) { p.maxHp += 2; p.hp = Math.min(p.maxHp, p.hp + 2); p._wroteLie = true; },
+        prose: 'I write something kinder than the truth. the page accepts it more readily. !!I am more here than I should be.!!',
+        effect(p) { bumpComposure(p, 4); applyScar(p, 'named'); },
       },
       {
         key: 'leave_blank',
@@ -177,13 +185,13 @@ export const EVENTS = {
         key: 'turn',
         label: 'Turn away',
         prose: 'I do not look long. the window is clean.',
-        effect(p) { p.composure = Math.min(5, p.composure + 2); },
+        effect(p) { bumpComposure(p, 2); },
       },
       {
         key: 'open',
         label: 'Open the window',
-        prose: 'cold. ~~something~~ a wind comes in from outside. I am ~~smaller~~ thinner for it. !!I am also stronger.!!',
-        effect(p) { p.maxHp = Math.max(1, p.maxHp - 1); p.composure = 5; addTrait(p, 'cold_hands'); },
+        prose: 'cold. a wind comes in from outside. ~~I~~ I am thinner for it. !!I am also stronger.!!',
+        effect(p) { bumpComposure(p, -2); addTrait(p, 'cold_hands'); },
       },
     ],
   },
