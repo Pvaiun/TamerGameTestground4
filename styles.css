@@ -1656,3 +1656,41 @@
     border-left: 2px solid var(--doc-blood);
     padding-left: var(--space-2);
   }
+
+  /* signature block — div-stacked, not grid-dependent, so it lays out cleanly at every width */
+  .corridor-sig-block {
+    margin-top: var(--space-2);
+    padding: var(--space-2) 0;
+    border-top: 1px solid var(--rule-soft);
+  }
+  .corridor-sig-label {
+    color: var(--ink-60);
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+    margin-bottom: 2px;
+  }
+  .corridor-sig-name {
+    color: var(--doc-gold);
+    font-size: var(--fs-body);
+    letter-spacing: 0.5px;
+    line-height: 1.3;
+  }
+  .corridor-sig-desc {
+    color: var(--ink-80);
+    font-size: var(--fs-body-tight);
+    line-height: 1.5;
+    margin-top: 2px;
+  }
+  .enc-sig-name {
+    color: var(--doc-gold);
+    font-size: var(--fs-body);
+    letter-spacing: 0.5px;
+    line-height: 1.3;
+    margin-top: 2px;
+  }
+  .enc-sig-desc {
+    color: var(--ink-80);
+    font-size: var(--fs-body-tight);
+    line-height: 1.5;
+    margin-top: 2px;
+  }

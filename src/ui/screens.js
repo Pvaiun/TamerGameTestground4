@@ -234,14 +234,16 @@ function playerStatusEl(player) {
     el('span', { class: 'corridor-status-cell' }, `scars ${(player.scars || []).length}`),
   ]));
 
-  // signature (always shown so the player remembers what their once-per-fight does)
+  // signature (always shown so the player remembers what their once-per-fight does).
+  // Rendered as three stacked blocks so narrow viewports don't smash them
+  // together — labels, names, and descriptions stay legible at any width.
   if (w && w.signature && TRAITS[w.signature]) {
     const sig = TRAITS[w.signature];
-    const sigRow = el('div', { class: 'corridor-trait-row sig' });
-    sigRow.appendChild(el('span', { class: 'corridor-trait-tag' }, 'signature'));
-    sigRow.appendChild(el('span', { class: 'corridor-trait-name' }, sig.name));
-    sigRow.appendChild(el('span', { class: 'corridor-trait-desc' }, sig.desc));
-    wrap.appendChild(sigRow);
+    const sigBlock = el('div', { class: 'corridor-sig-block' });
+    sigBlock.appendChild(el('div', { class: 'corridor-sig-label' }, 'signature'));
+    sigBlock.appendChild(el('div', { class: 'corridor-sig-name' }, sig.name));
+    sigBlock.appendChild(el('div', { class: 'corridor-sig-desc' }, sig.desc));
+    wrap.appendChild(sigBlock);
   }
 
   // collected traits — name + desc on each row.

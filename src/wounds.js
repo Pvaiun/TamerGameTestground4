@@ -15,8 +15,9 @@ export const WOUNDS = {
       'Settled in room without resistance.',
     ],
     // mods are read by sumMod / engine. composureMax adds to your cap;
-    // startComposure is your initial composure each fight.
-    mods: { startComposure: 2 },
+    // startComposure is the per-fight baseline floor your composure drops to
+    // (you can always carry more across from events; never less than this).
+    mods: { startComposure: 3 },
     signature: 'sig_amnesia',
   },
 
@@ -29,7 +30,7 @@ export const WOUNDS = {
       'Pupils normal. Pulse elevated.',
       'When asked to lie down: !!declines.!!',
     ],
-    mods: { startComposure: 1, composureMax: 1 },
+    mods: { startComposure: 3, composureMax: 1 },
     signature: 'sig_insomnia',
   },
 
@@ -42,7 +43,7 @@ export const WOUNDS = {
       'Subject is calm about this. Staff are not.',
       'Asked which is here, in this chair: !!I do not know.!!',
     ],
-    mods: { startComposure: 1 },
+    mods: { startComposure: 2 },
     signature: 'sig_absence',
   },
 
@@ -55,7 +56,7 @@ export const WOUNDS = {
       'The account is [[12]]. The handwriting matches.',
       'Subject does not remember writing it.',
     ],
-    mods: { startComposure: 0, composureMax: 0 },
+    mods: { startComposure: 2 },
     signature: 'sig_witness',
   },
 
@@ -68,7 +69,7 @@ export const WOUNDS = {
       'Two of the names are staff. The others are !!not yet on file.!!',
       'Subject asks to be brought to one of them daily.',
     ],
-    mods: { startComposure: 3 },
+    mods: { startComposure: 4 },
     signature: 'sig_devotion',
   },
 
@@ -81,7 +82,7 @@ export const WOUNDS = {
       'Will not eat without prompting. Eats slowly when reminded.',
       'When asked what is missing, answers: ~~everything~~ I will know when it comes back.',
     ],
-    mods: { startComposure: 0, composureMax: 2 },
+    mods: { startComposure: 2, composureMax: 2 },
     signature: 'sig_hollow',
   },
 };

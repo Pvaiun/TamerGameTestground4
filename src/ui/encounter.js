@@ -233,13 +233,13 @@ function traitListEl(player) {
 
 function signatureBlockEl(sig) {
   const t = TRAITS[sig.id];
+  // Stacked as plain divs so the layout doesn't depend on grid columns
+  // (which can collapse at narrow widths and smash the spans together).
   const wrap = el('div', { class: 'enc-trait-block enc-sig-block' });
   wrap.appendChild(el('div', { class: 'enc-stat-label' },
     `signature · ${sig.usesLeft > 0 ? `${sig.usesLeft} use` : 'spent'}`));
-  const row = el('div', { class: 'enc-trait-line sig' });
-  row.appendChild(el('span', { class: 'enc-trait-name' }, t ? t.name : sig.id));
-  row.appendChild(el('span', { class: 'enc-trait-desc' }, t ? t.desc : ''));
-  wrap.appendChild(row);
+  wrap.appendChild(el('div', { class: 'enc-sig-name' }, t ? t.name : sig.id));
+  wrap.appendChild(el('div', { class: 'enc-sig-desc' }, t ? t.desc : ''));
   return wrap;
 }
 
