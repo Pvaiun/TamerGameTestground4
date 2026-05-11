@@ -125,6 +125,7 @@ export function applyResolutionAndAdvance() {
     patient: enc.patient.id,
     endingId: ending,
     endingTitle: enc.endingTitle || ending,
+    endingLines: [...(enc.endingLines || [])],
     trait,
     scars: [...(enc.pendingScars || [])],
   });
