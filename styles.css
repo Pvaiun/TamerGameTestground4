@@ -1558,3 +1558,101 @@
     0%, 50% { opacity: 1; }
     51%, 100% { opacity: 0.45; }
   }
+
+  /* ── v0.200: encounter as conversation ────────────────────────── */
+
+  /* presented state — the heart of the read */
+  .enc-presented {
+    font-size: var(--fs-body);
+    color: var(--ink-100);
+    line-height: 1.6;
+    padding: var(--space-2) var(--space-3);
+    background: rgba(212, 164, 40, 0.04);
+    border-left: 2px solid var(--doc-gold);
+    margin-bottom: var(--space-2);
+  }
+
+  /* scales — names always visible, values gated behind reveals */
+  .enc-scales {
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-2);
+    border-bottom: 1px dotted var(--rule-faint);
+  }
+  .enc-scale-list {
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .enc-scale-row {
+    display: flex; align-items: baseline; gap: var(--space-2);
+    font-size: var(--fs-body-tight);
+    padding: 1px 0;
+  }
+  .enc-scale-name {
+    color: var(--ink-100);
+    letter-spacing: 0.5px;
+    width: 100px;
+    flex-shrink: 0;
+  }
+  .enc-scale-pips {
+    display: inline-flex; gap: 2px;
+  }
+  .enc-scale-pip {
+    color: var(--ink-40); font-size: 11px;
+  }
+  .enc-scale-pip.lit { color: var(--doc-blood); }
+  .enc-scale-veil {
+    color: var(--ink-40);
+    font-style: italic;
+    font-size: var(--fs-body-tight);
+  }
+  .enc-scale-empty {
+    color: var(--ink-40);
+    font-style: italic;
+    font-size: var(--fs-body-tight);
+  }
+
+  /* scars (player) */
+  .enc-scar-list {
+    color: var(--ink-100);
+    font-size: var(--fs-body-tight);
+  }
+  .enc-scar {
+    color: var(--doc-blood);
+    border-bottom: 1px dotted var(--rule-faint);
+    cursor: help;
+  }
+  .corridor-trait-row.scar .corridor-trait-name { color: var(--doc-blood); }
+  .resolution-scar-row {
+    display: grid; grid-template-columns: 120px 1fr;
+    gap: var(--space-3); align-items: baseline;
+    padding: 4px 0; font-size: var(--fs-body-tight);
+    border-bottom: 1px dotted var(--rule-faint);
+  }
+  .resolution-scar-name { color: var(--doc-blood); letter-spacing: 0.5px; }
+  .resolution-scar-desc { color: var(--ink-80); }
+  .resolution-scars {
+    margin-top: var(--space-3);
+  }
+
+  /* ending title */
+  .resolution-title {
+    text-align: center;
+    margin: var(--space-3) 0;
+    font-size: 16px;
+    color: var(--doc-gold);
+    letter-spacing: 1px;
+  }
+  .resolution-title-mark { color: var(--ink-60); margin: 0 var(--space-1); }
+
+  /* ending narrative class */
+  .enc-narr-line.ending {
+    color: var(--ink-100);
+    border-left-color: var(--doc-gold);
+    font-style: italic;
+  }
+  .enc-narr-line.narr { border-left-color: var(--ink-80); }
+
+  /* danger verb (LEAVE) */
+  .enc-act.danger {
+    border-left: 2px solid var(--doc-blood);
+    padding-left: var(--space-2);
+  }

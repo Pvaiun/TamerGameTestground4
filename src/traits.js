@@ -1,225 +1,170 @@
-// The trait registry. Traits are small, named modifications to the player's
-// combat behavior. Most are acquired from a patient resolution; a few are
-// granted by the player's wound at admission.
+// Traits earned from patient resolutions. Each trait modifies the player's
+// engagement with the next encounters — either passively (mods read by the
+// engine) or via named hooks (onCorridorEntry, onEncounterStart,
+// onPlayerVerb, onSignature, onCollapse).
 //
-// Each trait may declare any subset of:
-//   mods: { maxHp, startComposure, pressDmg, strikeDmg, strikeCost,
-//           listenReveal, listenCompGain, endureCompGain, endureHeal,
-//           bleedTickDmg, knowDuration }
-//   hooks: object of named functions called by the combat engine.
-//
-// Hooks receive ctx (combat context). They may set ctx.consumed = true,
-// ctx.bonus = N, etc. Engine reads these after the hook returns.
+// Patients themselves can also read `player.traits` and branch their
+// responses, so some traits manifest as bespoke alterations to specific
+// patients (e.g. "cold hands" warms the room faster for the woman at the
+// bench). That logic lives in src/patients.js.
 
 export const TRAITS = {
 
-  // ─── from patient resolutions ────────────────────────────────────────
+  // ─── from patient resolutions ─────────────────────────────────────────
 
   mothering: {
     id: 'mothering',
     name: 'Mothering',
-    desc: 'When the patient is at 1 HP, your next action heals you for 3.',
-    voice: 'There is a way of ~~holding~~ keeping. I learned it from her.',
+    desc: 'restore 2 composure between encounters.',
+    voice: 'there is a way of ~~holding~~ keeping. I learned it from her.',
     hooks: {
-      afterAnyResolve(ctx) {
-        if (ctx.patient.hp === 1 && !ctx.player._motheringPrimed) {
-          ctx.player._motheringPrimed = true;
-        }
-      },
-      beforePlayerResolve(ctx) {
-        if (ctx.player._motheringPrimed) {
-          ctx._motheringFire = true;
-        }
-      },
-      afterPlayerResolve(ctx) {
-        if (ctx._motheringFire) {
-          ctx.heal(ctx.player, 3, 'a way of holding');
-          ctx.player._motheringPrimed = false;
-        }
-      },
+      onCorridorEntry(ctx) { ctx.healOutOfCombat(2); },
     },
   },
 
   empty_arms: {
     id: 'empty_arms',
     name: 'Empty Arms',
-    desc: 'STRIKE costs 1 less composure but deals 1 less damage.',
+    desc: 'every verb costs 1 less composure (minimum 0).',
     voice: 'I gave it back. I still feel its weight.',
-    mods: { strikeCost: -1, strikeDmg: -1 },
+    mods: { verbCostMod: -1 },
   },
 
   inherited: {
     id: 'inherited',
     name: 'Inherited',
-    desc: '+2 maximum HP. You start each fight with 1 BLEED.',
-    voice: 'I took the bundle. It was not light.',
-    mods: { maxHp: 2 },
+    desc: '+1 max composure.',
+    voice: 'I took the bundle. it was not light. ~~it~~ it was something.',
+    mods: { composureMax: 1, startComposure: 1 },
+  },
+
+  vessel_for_ghosts: {
+    id: 'vessel_for_ghosts',
+    name: 'Vessel for Ghosts',
+    desc: 'if you would collapse, survive at 1 composure. once per run.',
+    voice: 'he is here, somewhere ~~behind~~ inside.',
     hooks: {
-      onEncounterStart(ctx) { ctx.applyStatus(ctx.player, 'bleed', 1); },
+      onCollapse(ctx) {
+        if (!ctx.player._ghostUsed) {
+          ctx.player._ghostUsed = true;
+          ctx.player.composure = 1;
+          ctx.cancel = true;
+          ctx.log('a hand on my shoulder. it is not mine.', { cls: 'flavor' });
+        }
+      },
     },
   },
 
   dominion: {
     id: 'dominion',
     name: 'Dominion',
-    desc: 'PRESS deals +1 damage.',
-    voice: 'I sat in his chair. The room composed itself.',
-    mods: { pressDmg: 1 },
-  },
-
-  vessel_for_ghosts: {
-    id: 'vessel_for_ghosts',
-    name: 'Vessel for Ghosts',
-    desc: 'When you would die, survive at 1 HP. Once per run.',
-    voice: 'He is here, somewhere ~~behind~~ inside.',
-    hooks: {
-      onLethalDamage(ctx) {
-        if (!ctx.player._ghostUsed) {
-          ctx.player._ghostUsed = true;
-          ctx.cancelLethal = true;
-          ctx.player.hp = 1;
-          ctx.log({ text: 'a hand on my shoulder. it is not mine.', cls: 'flavor', pause: 700 });
-        }
-      },
-    },
+    desc: '+1 starting composure each fight.',
+    voice: 'I sat in his chair. the room composed itself.',
+    mods: { startComposure: 1 },
   },
 
   forgotten_name: {
     id: 'forgotten_name',
     name: 'A Name He Kept',
-    desc: 'LISTEN reveals 4 upcoming poses instead of 2.',
-    voice: 'He told me his name. !!I have already forgotten it.!!',
-    mods: { listenReveal: 2 },
+    desc: 'your signature has 2 uses per fight.',
+    voice: 'he told me his name. !!I have already forgotten it.!!',
+    hooks: {
+      onEncounterStart(ctx) {
+        if (ctx.player.signature) ctx.player.signature.usesLeft = 2;
+      },
+    },
   },
 
   calming: {
     id: 'calming',
     name: 'Calming Hands',
-    desc: 'You start each encounter with 2 composure.',
-    voice: 'She moved without sound. I caught the rhythm.',
-    mods: { startComposure: 2 },
+    desc: 'WAIT restores 1 composure.',
+    voice: 'she moved without sound. I caught the rhythm.',
+    hooks: {
+      onPlayerVerb(ctx) {
+        if (ctx.verbId === 'wait') ctx.composure(+1);
+      },
+    },
   },
 
   sleepless: {
     id: 'sleepless',
     name: 'Sleepless',
-    desc: 'Immune to HELD. ENDURE no longer grants composure.',
+    desc: 'sleep / drowsing effects against you are halved.',
     voice: 'I will not lie down here.',
-    mods: { endureCompGain: -2 },
-    hooks: {
-      beforeStatusApplied(ctx) {
-        if (ctx.statusKey === 'held' && ctx.target === ctx.player) ctx.prevent = true;
-      },
-    },
+    // patient logic (e.g. soothlick) reads player.traits.includes('sleepless')
   },
 
   vigilant: {
     id: 'vigilant',
     name: 'Vigilant',
-    desc: 'LISTEN heals you for 1.',
+    desc: 'WAIT also reveals a hint of what the patient is feeling.',
     voice: 'I keep watch. I do not look away.',
-    hooks: {
-      onListen(ctx) { ctx.heal(ctx.player, 1, 'I keep watch.'); },
-    },
+    // surfaced by encounter UI as an extra line during WAIT drift
   },
 
   unblinking: {
     id: 'unblinking',
     name: 'Unblinking',
-    desc: 'You see the patient\'s next pose at all times. KNOW lasts +2 turns.',
-    voice: 'He showed me how to look.',
-    mods: { listenReveal: 1, knowDuration: 2 },
+    desc: 'see the value of one of the patient\'s scales for the whole fight.',
+    voice: 'he showed me how to look.',
     hooks: {
-      onEncounterStart(ctx) { ctx.applyStatus(ctx.patient, 'know', 2); },
+      onEncounterStart(ctx) {
+        const scaleKeys = Object.keys(ctx.patient.def.scales || {});
+        if (scaleKeys.length) ctx.revealScale(scaleKeys[0]);
+      },
     },
   },
 
   small_warmth: {
     id: 'small_warmth',
     name: 'A Small Warmth',
-    desc: 'Heals 2 HP between encounters (does not stack).',
-    voice: 'The dog\'s breath at my hand. ~~I remember a dog.~~',
+    desc: 'restore 1 composure between encounters.',
+    voice: 'the dog\'s breath at my hand. ~~I remember a dog.~~',
     hooks: {
-      onCorridorEntry(ctx) { ctx.healOutOfCombat(2); },
+      onCorridorEntry(ctx) { ctx.healOutOfCombat(1); },
     },
   },
 
   cold_hands: {
     id: 'cold_hands',
     name: 'Cold Hands',
-    desc: 'STRIKE applies 2 BLEED to the patient.',
-    voice: 'She did not warm. I learned to be that way.',
-    hooks: {
-      onStrikeHit(ctx) { ctx.applyStatus(ctx.patient, 'bleed', 2); },
-    },
+    desc: 'you start each fight with +1 composure.',
+    voice: 'she did not warm. I learned to be that way.',
+    mods: { startComposure: 1 },
   },
 
   patience: {
     id: 'patience',
     name: 'Patience',
-    desc: 'ENDURE heals 2 instead of granting composure.',
-    voice: 'A bench. A station. A son who would come.',
-    mods: { endureCompGain: -2, endureHeal: 2 },
-  },
-
-  remembered: {
-    id: 'remembered',
-    name: 'Remembered',
-    desc: 'SPEAK\'s effect is doubled.',
-    voice: 'I say the name. It answers to me.',
+    desc: 'every other WAIT restores 1 composure.',
+    voice: 'a bench. a station. a son who would come.',
     hooks: {
-      onSpeakEffect(ctx) { ctx.speakMult = 2; },
-    },
-  },
-
-  rooted: {
-    id: 'rooted',
-    name: 'Rooted',
-    desc: '+3 maximum HP. You move slowly: patient always acts first.',
-    voice: 'I will be where I was.',
-    mods: { maxHp: 3 },
-    hooks: {
-      onTurnOrder(ctx) { ctx.playerFirst = false; },
-    },
-  },
-
-  unfinished: {
-    id: 'unfinished',
-    name: 'Unfinished',
-    desc: 'Heals 1 HP each turn you do not deal damage.',
-    voice: 'I have not yet ~~finished~~ closed.',
-    hooks: {
-      onTurnEnd(ctx) {
-        if (!ctx.tookDamageAction) ctx.heal(ctx.player, 1, 'a small mending');
-      },
-    },
-  },
-
-  thornlike: {
-    id: 'thornlike',
-    name: 'Thornlike',
-    desc: 'When you take damage, the patient takes 1 back.',
-    voice: 'I apologized. ~~Still.~~ It did not help.',
-    hooks: {
-      onDamageTaken(ctx) {
-        if (ctx.amount > 0 && ctx.source === 'patient') {
-          ctx.dealDamage(ctx.patient, 1, { source: 'thorn', silent: false });
+      onPlayerVerb(ctx) {
+        if (ctx.verbId === 'wait') {
+          ctx.player._patienceTick = ((ctx.player._patienceTick || 0) + 1) % 2;
+          if (ctx.player._patienceTick === 0) ctx.composure(+1);
         }
       },
     },
   },
 
+  remembered: {
+    id: 'remembered',
+    name: 'Remembered',
+    desc: 'verbs that name or speak resonate further. (patient-specific.)',
+    voice: 'I say the name. it answers to me.',
+    // patient code (hollow, mire, frostfin) checks for this trait
+  },
+
   redacted: {
     id: 'redacted',
     name: '[[8]]',
-    desc: 'You cannot be afflicted with KNOW. Damage you take is reduced by 1.',
-    voice: 'The page is missing. I keep going.',
+    desc: 'you cannot acquire new WITNESSED scars.',
+    voice: 'the page is missing. I keep going.',
     hooks: {
-      beforeStatusApplied(ctx) {
-        if (ctx.statusKey === 'know' && ctx.target === ctx.player) ctx.prevent = true;
-      },
-      onDamageTaken(ctx) {
-        if (ctx.amount > 0) ctx.amount = Math.max(0, ctx.amount - 1);
+      onScar(ctx) {
+        if (ctx.scarId === 'witnessed') ctx.prevent = true;
       },
     },
   },
@@ -227,126 +172,168 @@ export const TRAITS = {
   faithful: {
     id: 'faithful',
     name: 'Faithful',
-    desc: 'Your signature can be used one additional time.',
+    desc: 'your signature has 2 uses per fight.',
     voice: 'I came here for a reason. ~~I forgot it.~~ I remember it.',
     hooks: {
-      onEncounterStart(ctx) { if (ctx.player.signature) ctx.player.signature.usesLeft++; },
+      onEncounterStart(ctx) {
+        if (ctx.player.signature) ctx.player.signature.usesLeft = 2;
+      },
     },
   },
 
   bound: {
     id: 'bound',
     name: 'Bound',
-    desc: 'BLEED you suffer ticks 1 less. BLEED you inflict ticks 1 more.',
+    desc: 'at fight start, one of the patient\'s scales reveals itself.',
     voice: 'I learned what holds. I learned what loosens.',
     hooks: {
-      onBleedTick(ctx) {
-        if (ctx.target === ctx.player) ctx.amount = Math.max(0, ctx.amount - 1);
-        else                            ctx.amount += 1;
+      onEncounterStart(ctx) {
+        const scaleKeys = Object.keys(ctx.patient.def.scales || {});
+        if (scaleKeys.length) ctx.revealScale(scaleKeys[scaleKeys.length - 1]);
       },
     },
   },
 
-  // signatures granted by wounds — kept in the same registry so the
-  // engine can resolve them uniformly. Marked with isSignature: true.
+  unfinished: {
+    id: 'unfinished',
+    name: 'Unfinished',
+    desc: 'at the end of every fight, restore 2 composure.',
+    voice: 'I have not yet ~~finished~~ closed.',
+    hooks: {
+      onEncounterEnd(ctx) {
+        ctx.composure(+2);
+      },
+    },
+  },
+
+  // ─── signatures (granted by wounds) ───────────────────────────────────
 
   sig_amnesia: {
-    id: 'sig_amnesia', name: 'I do not remember',
-    desc: 'Once per fight: cleanse all your statuses, deal 0 damage.',
+    id: 'sig_amnesia',
+    name: 'I do not remember',
+    desc: 'once per fight: reset every player effect the patient has put on you, and restore 1 composure.',
     voice: 'I forget what was being done to me.',
     isSignature: true,
     hooks: {
       onSignature(ctx) {
-        for (const k of Object.keys(ctx.player.statuses)) ctx.player.statuses[k] = 0;
-        ctx.log({ text: 'I do not remember being held.', cls: 'flavor' });
+        for (const k of Object.keys(ctx.patient.playerEffects || {})) ctx.patient.playerEffects[k] = 0;
+        ctx.composure(+1);
+        ctx.log('I do not remember what was being done to me. ~~she does not~~ she does not either.', { cls: 'flavor' });
       },
     },
   },
 
   sig_insomnia: {
-    id: 'sig_insomnia', name: 'I have been awake',
-    desc: 'Once per fight: take 2 actions this turn.',
+    id: 'sig_insomnia',
+    name: 'I have been awake',
+    desc: 'once per fight: reveal one of the patient\'s scales for this fight.',
     voice: 'I keep moving. I do not stop.',
     isSignature: true,
     hooks: {
-      onSignature(ctx) { ctx.grantExtraAction = true; },
+      onSignature(ctx) {
+        const keys = Object.keys(ctx.patient.def.scales || {});
+        const unseen = keys.find(k => !(ctx.enc._revealed || []).includes(k));
+        if (unseen) {
+          ctx.revealScale(unseen);
+          ctx.log(`I have been awake. ~~I~~ I see her ${unseen}, now.`, { cls: 'flavor' });
+        } else {
+          ctx.log('I have been awake. ~~I see her~~ I see her whole.', { cls: 'flavor' });
+        }
+      },
     },
   },
 
   sig_absence: {
-    id: 'sig_absence', name: 'I was not there',
-    desc: 'Once per fight: the patient\'s next pose fails outright.',
+    id: 'sig_absence',
+    name: 'I was not there',
+    desc: 'once per fight: undo the last shift in one scale of your choice. ~~the room~~ no one remembers.',
     voice: 'I close the door from the inside.',
     isSignature: true,
     hooks: {
-      onSignature(ctx) { ctx.cancelNextPose = true; },
+      onSignature(ctx) {
+        // simple version — restore composure to max and clear playerEffects.
+        ctx.composure(ctx.player.composureMax);
+        for (const k of Object.keys(ctx.patient.playerEffects || {})) ctx.patient.playerEffects[k] = 0;
+        ctx.log('I close the door from the inside. ~~for a moment~~ for a moment, I was never in.', { cls: 'flavor' });
+      },
     },
   },
 
   sig_witness: {
-    id: 'sig_witness', name: 'I see what is here',
-    desc: 'Once per fight: reveal all of the patient\'s remaining queue + apply KNOW for 3 turns.',
-    voice: 'I write it down. ~~It writes back.~~',
+    id: 'sig_witness',
+    name: 'I see what is here',
+    desc: 'once per fight: reveal ALL of the patient\'s scales for this fight.',
+    voice: 'I write it down. ~~it writes back.~~',
     isSignature: true,
     hooks: {
       onSignature(ctx) {
-        ctx.revealAll = true;
-        ctx.applyStatus(ctx.patient, 'know', 3);
+        for (const k of Object.keys(ctx.patient.def.scales || {})) ctx.revealScale(k);
+        ctx.log('I see her whole. ~~the page~~ the page is full.', { cls: 'flavor' });
       },
     },
   },
 
   sig_devotion: {
-    id: 'sig_devotion', name: 'I am for them',
-    desc: 'Once per fight: take 4 damage, deal 6 damage.',
+    id: 'sig_devotion',
+    name: 'I am for them',
+    desc: 'once per fight: lose 2 composure, but shift one of the patient\'s scales toward release.',
     voice: 'I came here on purpose. I will leave on purpose.',
     isSignature: true,
     hooks: {
       onSignature(ctx) {
-        ctx.dealDamage(ctx.player,  4, { source: 'devotion' });
-        ctx.dealDamage(ctx.patient, 6, { source: 'devotion' });
+        ctx.composure(-2);
+        // shift a "stuck" scale: pick the scale at its max and reduce it by 2.
+        const scaleKeys = Object.keys(ctx.patient.def.scales || {});
+        const maxedKey = scaleKeys.find(k => ctx.patient.scales[k] >= (ctx.patient.def.scales[k]?.max ?? 5) - 1);
+        if (maxedKey) {
+          ctx.shift(maxedKey, -2);
+          ctx.log(`I take her ${maxedKey} into my hands. ~~it~~ it eases.`, { cls: 'flavor' });
+        } else {
+          ctx.log('I am here. I am for her. ~~it~~ it costs.', { cls: 'flavor' });
+        }
       },
     },
   },
 
   sig_hollow: {
-    id: 'sig_hollow', name: 'I am hollow',
-    desc: 'Once per fight: refill composure to 5 and heal 1.',
-    voice: 'I empty out. The room rushes in.',
+    id: 'sig_hollow',
+    name: 'I am hollow',
+    desc: 'once per fight: refill composure to maximum.',
+    voice: 'I empty out. the room rushes in.',
     isSignature: true,
     hooks: {
       onSignature(ctx) {
-        ctx.player.composure = 5;
-        ctx.heal(ctx.player, 1, 'the room rushes in');
+        ctx.composure(ctx.player.composureMax);
+        ctx.log('I empty out. the room rushes in. ~~I~~ I am almost full again.', { cls: 'flavor' });
       },
     },
   },
 };
 
-// Helpers used by the engine.
+// ─── helpers used by the engine ────────────────────────────────────────
+
 export function traitMods(trait) { return trait.mods || {}; }
 export function traitHooks(trait) { return trait.hooks || {}; }
 export function getTrait(id) { return TRAITS[id] || null; }
 
-// Sum a numeric modifier across all the player's traits + wound.
+// Sum a numeric modifier across all traits + signature.
 export function sumMod(player, key) {
   let total = 0;
   for (const tid of player.traits || []) {
     const t = TRAITS[tid]; if (!t) continue;
     total += (t.mods && t.mods[key]) || 0;
   }
-  // signature mods (rare; most signatures use hooks)
   if (player.signature && TRAITS[player.signature.id]) {
     total += (TRAITS[player.signature.id].mods && TRAITS[player.signature.id].mods[key]) || 0;
   }
   return total;
 }
 
-// Fire a named hook across all the player's traits + signature. Returns the
-// (possibly mutated) ctx. Engine reads ctx.* after calling.
+// Fire a named hook across all traits + signature.
 export function fireTraitHooks(player, hookName, ctx) {
   for (const tid of player.traits || []) {
-    const t = TRAITS[tid]; if (!t || !t.hooks || !t.hooks[hookName]) continue;
+    const t = TRAITS[tid];
+    if (!t || !t.hooks || !t.hooks[hookName]) continue;
     try { t.hooks[hookName](ctx); } catch (e) { console.error('trait hook error', tid, hookName, e); }
   }
   if (player.signature) {

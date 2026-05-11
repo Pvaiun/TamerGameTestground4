@@ -7,7 +7,6 @@
 
 export const RUN_DEPTH = 5;          // number of wings before the final encounter
 export const COMPOSURE_MAX = 5;
-export const POSE_QUEUE_VISIBLE = 3; // how many of the patient's upcoming poses we show
 
 // The single state object. All modules mutate it directly.
 export const state = {
