@@ -31,7 +31,8 @@ export const SCARS = {
     id: 'named',
     name: 'Named',
     file: 'she called me something. it has not quite let go.',
-    desc: 'risky verbs cost +1 composure.',
+    desc: 'verbs that cost 2 or more cost +1 composure.',
+    verbCostMod(cost) { return cost >= 2 ? cost + 1 : cost; },
   },
   abandoned: {
     id: 'abandoned',

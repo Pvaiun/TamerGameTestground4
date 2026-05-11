@@ -427,14 +427,14 @@ export function renderArchive() {
     if (summary.resolutions.length) {
       const list = el('div', { class: 'archive-resolutions' });
       for (const r of summary.resolutions) {
-        const t = TRAITS[r.trait];
+        const t = r.trait ? TRAITS[r.trait] : null;
         const p = PATIENTS[r.patient];
         list.appendChild(el('div', { class: 'archive-res-line' }, [
           el('span', { class: 'archive-res-patient' }, p ? p.name : `[${r.patient}]`),
           el('span', { class: 'archive-res-sep' }, ' · '),
-          el('span', { class: 'archive-res-key' }, r.key),
+          el('span', { class: 'archive-res-key' }, r.endingTitle || r.endingId || '—'),
           el('span', { class: 'archive-res-sep' }, ' · '),
-          el('span', { class: 'archive-res-trait' }, t ? t.name : (r.trait || '—')),
+          el('span', { class: 'archive-res-trait' }, t ? t.name : 'no trait'),
         ]));
       }
       page.appendChild(list);

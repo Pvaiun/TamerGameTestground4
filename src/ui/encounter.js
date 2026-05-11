@@ -9,7 +9,7 @@
 
 import { el, app } from './dom.js';
 import { state, COMPOSURE_MAX } from '../state.js';
-import { isPlayerTurn, playerVerb, advanceLog } from '../combat.js';
+import { isPlayerTurn, playerVerb, advanceLog, effectiveVerbCost } from '../combat.js';
 import { renderGlyph } from './glyphs.js';
 import { parseProse } from './textCorrupt.js';
 import { TRAITS } from '../traits.js';
@@ -300,9 +300,8 @@ function listVerbs(enc) {
   const p = enc.player;
   const pat = enc.patient;
   const acts = [];
-  // patient-specific verbs first
   for (const [id, v] of Object.entries(pat.def.verbs || {})) {
-    const cost = Math.max(0, (v.cost || 0) + sumVerbCostMod(p));
+    const cost = effectiveVerbCost(p, v);
     const disabled = cost > p.composure;
     acts.push({
       id, label: v.label.toUpperCase(),
@@ -311,10 +310,8 @@ function listVerbs(enc) {
       disabled,
     });
   }
-  // universal verbs
   acts.push({ id: 'wait', label: 'WAIT', desc: 'let the room move on its own.', cost: 0 });
-  acts.push({ id: 'leave', label: 'LEAVE', desc: 'close the door behind you. ~~it has a cost.~~', cost: 0, danger: true });
-  // signature
+  acts.push({ id: 'leave', label: 'LEAVE', desc: 'close the door behind you. composure −2. ~~it leaves a mark.~~', cost: 0, danger: true });
   if (p.signature && p.signature.usesLeft > 0) {
     const t = TRAITS[p.signature.id];
     acts.push({
@@ -326,15 +323,6 @@ function listVerbs(enc) {
     });
   }
   return acts;
-}
-
-function sumVerbCostMod(player) {
-  let total = 0;
-  for (const tid of player.traits || []) {
-    const t = TRAITS[tid];
-    if (t && t.mods && t.mods.verbCostMod) total += t.mods.verbCostMod;
-  }
-  return total;
 }
 
 function verbButton(act) {

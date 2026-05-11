@@ -722,15 +722,18 @@ const soothlick = {
       cost: 0,
       respond(p, player) {
         const t = p.scales.tending;
+        const sleepless = player.traits?.includes('sleepless');
         return {
           lines: [
             'I let her hand cool my forehead. her fingers smell of paper and bleach.',
             t >= 3
               ? 'she hums something soft. she has done this a long time. she is good at it.'
               : 'her hand is unsteady. she is not sure she remembers how this part goes.',
-            '(drowsing rises. tenderness — hers — rises.)',
+            sleepless
+              ? '~~I do not~~ I do not close my eyes. ~~her~~ her hum does not catch.'
+              : '(drowsing rises. tenderness — hers — rises.)',
           ],
-          playerEffects: { drowsing: +1 },
+          playerEffects: sleepless ? {} : { drowsing: +1 },
           scales: { tending: +1 },
         };
       },
@@ -821,14 +824,26 @@ const soothlick = {
     },
   },
 
-  drift(p) {
-    p.playerEffects.drowsing = Math.min(3, (p.playerEffects.drowsing || 0) + 1);
+  drift(p, player) {
+    const sleepless = player.traits?.includes('sleepless');
+    // sleepless halves the drift on drowsing — it only rises every OTHER wait.
+    if (!sleepless || (p.flags._sleeplessTick = !p.flags._sleeplessTick)) {
+      p.playerEffects.drowsing = Math.min(3, (p.playerEffects.drowsing || 0) + 1);
+    }
     const dr = p.playerEffects.drowsing;
     if (dr >= 3) {
       return {
         lines: [
           'I wait. her hand finds my forehead. ~~I close~~ I close my eyes.',
           'I am very warm. the room is very dim. the bed is very soft. I have been awake a long time.',
+        ],
+      };
+    }
+    if (sleepless) {
+      return {
+        lines: [
+          'I wait. her hand reaches for my forehead. I shift, slightly. she pauses.',
+          '(she is finding it harder to tend to me.)',
         ],
       };
     }
@@ -1275,7 +1290,20 @@ const frostfin = {
       label: 'say his name',
       desc: 'the one she is waiting for. the file gives it.',
       cost: 2,
-      respond(p) {
+      respond(p, player) {
+        const r = player.traits?.includes('remembered');
+        if (r) {
+          return {
+            lines: [
+              'I say his name. I say it the way only she would have said it.',
+              'she turns all the way. ~~she~~ she lets her body move. her face does what it must do.',
+              '!!I am not him. she is not yet asking which of us I am.!!',
+              '(recognition surges. waiting collapses.)',
+            ],
+            scales: { recognition: +3, waiting: -3 },
+            composure: -1,
+          };
+        }
         if (p.scales.recognition >= 2) {
           return {
             lines: [
@@ -1768,7 +1796,19 @@ const hollow = {
       label: 'say her name',
       desc: 'use her own — the one she gave the orderly. the one that is hers.',
       cost: 2,
-      respond(p) {
+      respond(p, player) {
+        const r = player.traits?.includes('remembered');
+        if (r) {
+          return {
+            lines: [
+              'I say her name. her own. ~~I~~ I have practiced this. it lands on her like a thing she had set down somewhere and missed.',
+              'she answers. yes? she says it not as a question.',
+              '!!her hands fold in her lap.!!',
+              '(recognition surges. insistence eases.)',
+            ],
+            scales: { recognition: +2, insistence: -1 },
+          };
+        }
         return {
           lines: [
             'I say her name. her own. the one on her file. she has not been called by it in a long time.',
@@ -1939,7 +1979,19 @@ const mire = {
       label: 'ask about the statue',
       desc: 'what was at the edge of the pond? a stone? a person?',
       cost: 1,
-      respond(p) {
+      respond(p, player) {
+        const r = player.traits?.includes('remembered');
+        if (r) {
+          return {
+            lines: [
+              'I ask, but I already half-remember it. I say what I remember, and let her correct me.',
+              'she corrects me, gently. she fills in what I was missing. ~~it is a person.~~ it is a person.',
+              'she says the name. !!she says the name.!!',
+              '(pond surges. weight surges. her approach holds.)',
+            ],
+            scales: { pond: +2, weight: +2 },
+          };
+        }
         if (p.scales.pond >= 3) {
           return {
             lines: [

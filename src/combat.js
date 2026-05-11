@@ -34,13 +34,14 @@ export function makePlayer(wound) {
     composure: 0,
     signature: null,
   };
-  if (w) {
-    player.composure = Math.min(COMPOSURE_MAX, Math.max(0, w.mods.startComposure || 0));
-    if (w.signature && TRAITS[w.signature]) {
-      player.signature = { id: w.signature, usesLeft: 1 };
-    }
+  if (w && w.signature && TRAITS[w.signature]) {
+    player.signature = { id: w.signature, usesLeft: 1 };
   }
+  // recompute first so composureMax reflects wound mods, then seed composure
+  // from the wound's startComposure (once-per-run, at admission).
   recomputePlayerStats(player);
+  const initComposure = (w?.mods.startComposure || 0) + sumMod(player, 'startComposure');
+  player.composure = Math.min(player.composureMax, Math.max(0, initComposure));
   return player;
 }
 
@@ -87,15 +88,17 @@ export function beginEncounter(patientDef, player) {
     try { patientDef.initialize(patient, player); } catch (e) { console.error('initialize error', e); }
   }
 
+  // Composure CARRIES across encounters — corridor events and trait heals
+  // accumulate. At fight start we apply only scar deltas (e.g. Abandoned: -1)
+  // and clamp to the (possibly trait-modified) max.
   recomputePlayerStats(player);
-  const w = WOUNDS[player.wound];
-  player.composure = Math.min(player.composureMax, Math.max(0, sumMod(player, 'startComposure') + (w?.mods.startComposure || 0)));
   for (const sid of player.scars || []) {
     const s = SCARS[sid];
     if (s && typeof s.startComposureDelta === 'number') {
       player.composure = Math.max(0, player.composure + s.startComposureDelta);
     }
   }
+  player.composure = Math.min(player.composureMax, player.composure);
   if (player.signature) player.signature.usesLeft = 1;
 
   state.enc = {
@@ -164,8 +167,7 @@ async function runPlayerVerb(verbId) {
       await drainLog();
       state.acting = false; enc.awaitingPlayer = true; render(); return;
     }
-    const baseCost = verb.cost || 0;
-    const cost = Math.max(0, baseCost + sumMod(p, 'verbCostMod'));
+    const cost = effectiveVerbCost(p, verb);
     if (cost > 0 && p.composure < cost) {
       pushLog({ text: `I cannot. ~~I am~~ I am not composed enough.  (needed ${cost}, had ${p.composure})`, cls: 'flavor' });
       await drainLog();
@@ -322,6 +324,14 @@ async function fireEnding(ending) {
     ? ending.scars(enc.patient, enc.player)
     : ending.scars;
   const scars = Array.isArray(rawScars) ? rawScars : (rawScars ? [rawScars] : []);
+  // Filter through onScar hooks now (so e.g. Redacted prevents Witnessed)
+  // before the resolution screen displays them — so what the player sees is
+  // what they actually receive.
+  const filteredScars = scars.filter(sid => {
+    const sctx = { player: enc.player, scarId: sid, prevent: false };
+    fireTraitHooks(enc.player, 'onScar', sctx);
+    return !sctx.prevent;
+  });
   const trait = (typeof ending.trait === 'function')
     ? ending.trait(enc.patient, enc.player)
     : (ending.trait || null);
@@ -331,7 +341,7 @@ async function fireEnding(ending) {
   enc.endingId = ending.id;
   enc.endingTitle = ending.title;
   enc.pendingTrait = trait;
-  enc.pendingScars = scars;
+  enc.pendingScars = filteredScars;
   enc.awaitingResolution = true;
   state.acting = false;
   state.screen = 'resolution';
@@ -423,6 +433,19 @@ export function acknowledgeResolution() {
 
 export function isPlayerTurn() {
   return !!(state.enc && state.enc.awaitingPlayer && !state.acting);
+}
+
+// Effective cost of a verb after trait mods + scar verbCostMod functions.
+// Exported so the UI can display the actual cost (after Empty Arms / Named).
+export function effectiveVerbCost(player, verb) {
+  let cost = (verb.cost || 0) + sumMod(player, 'verbCostMod');
+  for (const sid of player.scars || []) {
+    const s = SCARS[sid];
+    if (s && typeof s.verbCostMod === 'function') {
+      cost = s.verbCostMod(cost, verb);
+    }
+  }
+  return Math.max(0, cost);
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────

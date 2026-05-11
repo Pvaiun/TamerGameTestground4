@@ -98,9 +98,21 @@ export const TRAITS = {
   vigilant: {
     id: 'vigilant',
     name: 'Vigilant',
-    desc: 'WAIT also reveals a hint of what the patient is feeling.',
+    desc: 'each time you WAIT, reveal one of the patient\'s scales for this fight.',
     voice: 'I keep watch. I do not look away.',
-    // surfaced by encounter UI as an extra line during WAIT drift
+    hooks: {
+      onPlayerVerb(ctx) {
+        if (ctx.verbId !== 'wait') return;
+        const keys = Object.keys(ctx.patient.def.scales || {});
+        ctx.enc._revealed = ctx.enc._revealed || [];
+        const unseen = keys.find(k => !ctx.enc._revealed.includes(k));
+        if (unseen) {
+          ctx.enc._revealed.push(unseen);
+          const label = ctx.patient.def.scales[unseen]?.label || unseen;
+          ctx.log(`I watched her ${label}, while I waited.`, { cls: 'flavor' });
+        }
+      },
+    },
   },
 
   unblinking: {

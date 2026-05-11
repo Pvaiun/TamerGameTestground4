@@ -28,7 +28,7 @@ export function startNewRun(wound) {
   // build the corridor: alternate event-patient through RUN_DEPTH wings,
   // ending with the final boss.
   const patientPool = save.unlocked.patients.filter(id => PATIENTS[id]);
-  const finalId = save.unlocked.patients.includes('choir') ? 'choir' : 'choir';   // final is fixed; falls back gracefully
+  const finalId = 'choir';   // the final is always the choir; not a wing patient.
   // exclude the final from the wing patient pool. Sample without replacement,
   // then sort by tier ascending so easier patients arrive first. (Wing 1 is
   // the player's onboarding fight.)
@@ -123,8 +123,10 @@ export function applyResolutionAndAdvance() {
   acknowledgeResolution();
   state.run.resolutionsTaken.push({
     patient: enc.patient.id,
-    ending,
+    endingId: ending,
+    endingTitle: enc.endingTitle || ending,
     trait,
+    scars: [...(enc.pendingScars || [])],
   });
   state.enc = null;
   advanceRun();
