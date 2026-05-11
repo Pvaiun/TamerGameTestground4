@@ -1535,3 +1535,26 @@
     .enc-stat-label { width: 64px; }
     .enc-queue-item { grid-template-columns: 12px 36px 60px 1fr; }
   }
+
+  /* click-to-advance narrative — added in v0.110 */
+  .enc-narr.clickable {
+    cursor: pointer;
+    background: rgba(224, 224, 226, 0.025);
+  }
+  .enc-narr.clickable:hover {
+    background: rgba(224, 224, 226, 0.05);
+  }
+  .enc-narr-prompt {
+    margin-top: var(--space-1);
+    padding: 2px var(--space-3);
+    color: var(--ink-60);
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+    text-align: right;
+    animation: prompt-blink 1.2s ease-in-out infinite;
+  }
+  .enc-narr-prompt-cursor { color: var(--doc-blood); }
+  @keyframes prompt-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0.45; }
+  }

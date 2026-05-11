@@ -218,19 +218,21 @@ export function dealDamage(target, amount, opts = {}) {
   const enc = state.enc;
   if (!enc) return 0;
 
+  // flags read by attachDiff to annotate the surrounding log entry.
+  enc._flags = enc._flags || {};
+
   // bracing halves incoming damage for the player (ENDURE)
   if (target === enc.player && target._bracing) {
     amount = Math.max(0, Math.floor(amount / 2));
-    if (amount === 0) {
-      pushLog({ text: 'I planted. it skidded off.', cls: 'flavor' });
-    }
+    enc._flags.braced = true;
+    target._bracing = false;
   }
 
-  // raw doubles next damage
+  // raw boosts next damage
   if (target.statuses && target.statuses.raw > 0) {
     amount = Math.round(amount * 1.5);
     target.statuses.raw = 0;
-    pushLog({ text: 'the page was raw. it parts.', cls: 'flavor' });
+    enc._flags.rawConsumed = (target === enc.player) ? 'self' : 'patient';
   }
 
   // trait hook: damage taken (only for player; patients are simpler)
@@ -274,6 +276,87 @@ export function heal(target, amount, sourceLine) {
     if (sourceLine) pushLog({ text: sourceLine, heal: real, cls: 'mend' });
   }
   return real;
+}
+
+// ─── state diff / log annotation ────────────────────────────────────────
+//
+// Combat actions and patient poses can each modify several things at once
+// (HP, composure, statuses on either side, bracing). The engine snapshots
+// state before the effect, runs it, then composes a single log entry whose
+// text + tags describe everything that just happened.
+
+function snapshotEnc() {
+  const enc = state.enc;
+  return {
+    playerHp: enc.player.hp,
+    playerComp: enc.player.composure,
+    playerStatuses: { ...enc.player.statuses },
+    patientHp: enc.patient.hp,
+    patientStatuses: { ...enc.patient.statuses },
+  };
+}
+
+function diffSince(before) {
+  const enc = state.enc;
+  return {
+    playerHpDelta:   enc.player.hp   - before.playerHp,
+    playerCompDelta: enc.player.composure - before.playerComp,
+    playerStatusChanges:  statusDelta(before.playerStatuses,  enc.player.statuses),
+    patientHpDelta:  enc.patient.hp  - before.patientHp,
+    patientStatusChanges: statusDelta(before.patientStatuses, enc.patient.statuses),
+    flags: enc._flags || {},
+  };
+}
+
+function statusDelta(before, after) {
+  const list = [];
+  for (const k of Object.keys(STATUSES)) {
+    const b = before[k] || 0;
+    const a = after[k] || 0;
+    if (a !== b) list.push({ key: k, label: STATUSES[k].label, delta: a - b, timed: STATUSES[k].timed });
+  }
+  return list;
+}
+
+function clearFlags() { state.enc._flags = {}; }
+
+// who = 'self' (a player-initiated action) | 'patient' (a patient pose) | 'tick'
+function attachDiff(entry, diff, who) {
+  const tags = [];
+  // player gained statuses (from patient pose) or lost statuses (cleared by action)
+  for (const c of diff.playerStatusChanges) {
+    if (c.delta > 0) tags.push(`${c.label} +${c.timed ? `${c.delta}t` : c.delta}`);
+    if (c.delta < 0) tags.push(`${c.label} eased`);
+  }
+  // patient statuses — only on player-initiated actions
+  if (who === 'self') {
+    for (const c of diff.patientStatusChanges) {
+      if (c.delta > 0) tags.push(`she takes ${c.label}`);
+      if (c.delta < 0) tags.push(`her ${c.label} eases`);
+    }
+  }
+  if (diff.playerCompDelta > 0) tags.push(`composure +${diff.playerCompDelta}`);
+  if (diff.playerCompDelta < 0) tags.push(`composure ${diff.playerCompDelta}`);
+  // flags set by other modules during the action
+  if (diff.flags.willBrace)     tags.push('next hit halved');
+  if (diff.flags.queueRevealed) tags.push(`see ${diff.flags.queueRevealed} ahead`);
+  if (diff.flags.braced)        tags.push('braced — halved');
+  if (diff.flags.rawConsumed)   tags.push('raw consumed');
+  if (diff.flags.queueCancelled) tags.push('her queue stutters');
+
+  if (tags.length) entry.text = `${entry.text}  (${tags.join(', ')})`;
+
+  // damage / heal indicators on the entry — the UI shows these as red/green
+  // numbers to the right of the text.
+  if (who === 'self') {
+    if (diff.patientHpDelta < 0) entry.damage = -diff.patientHpDelta;
+    if (diff.playerHpDelta > 0)  entry.heal   = diff.playerHpDelta;
+  } else {
+    if (diff.playerHpDelta < 0)  entry.damage = -diff.playerHpDelta;
+    if (diff.patientHpDelta < 0) entry.damage = -diff.patientHpDelta;
+    if (diff.playerHpDelta > 0)  entry.heal   = diff.playerHpDelta;
+  }
+  return entry;
 }
 
 export function applyStatus(target, key, amount) {
@@ -394,61 +477,84 @@ async function executePlayerAction(key, ctx) {
   const p = enc.player;
   const pat = enc.patient;
 
+  // Each action follows the same pattern: validate, snapshot, run effects,
+  // attach diff annotations to a single narrative entry, push + drain.
+  // The log entry is the only thing the player sees, so it has to carry
+  // both the prose and the mechanical readout.
+
   if (key === 'press') {
+    clearFlags();
+    const before = snapshotEnc();
     const dmg = 2 + sumMod(p, 'pressDmg');
-    pushLog({ text: pat.def.flavor?.press || `I press a hand to ${pronounObj(pat)} arm.`, cls: 'narr' });
-    await drainLog(/*intra-action*/true);
     dealDamage(pat, Math.max(0, dmg));
     ctx.tookDamageAction = true;
+    const diff = diffSince(before);
+    pushLog(attachDiff(
+      { text: pat.def.flavor?.press || `I press a hand to ${pronounObj(pat)} arm.`, cls: 'narr' },
+      diff, 'self'));
+    await drainLog();
     return true;
   }
 
   if (key === 'strike') {
     const cost = Math.max(0, 2 + sumMod(p, 'strikeCost'));
     if (p.composure < cost) {
-      pushLog({ text: 'I am not composed enough. nothing happens.', cls: 'flavor' });
+      pushLog({ text: `I am not composed enough.  (needed ${cost} composure, had ${p.composure})`, cls: 'flavor' });
       await drainLog();
       return false;
     }
+    clearFlags();
+    const before = snapshotEnc();
     p.composure -= cost;
     const dmg = Math.max(0, 5 + sumMod(p, 'strikeDmg'));
-    pushLog({ text: pat.def.flavor?.strike || `I strike at ${pronounObj(pat)}, hard.`, cls: 'narr' });
-    await drainLog(true);
     dealDamage(pat, dmg);
     sfx('crit');
-    // fire hooks
     const sctx = mkCtx();
     fireTraitHooks(p, 'onStrikeHit', sctx);
     ctx.tookDamageAction = true;
+    const diff = diffSince(before);
+    pushLog(attachDiff(
+      { text: pat.def.flavor?.strike || `I strike at ${pronounObj(pat)}, hard.`, cls: 'narr' },
+      diff, 'self'));
+    await drainLog();
     return true;
   }
 
   if (key === 'endure') {
+    clearFlags();
+    const before = snapshotEnc();
     const compGain = Math.max(0, 2 + sumMod(p, 'endureCompGain'));
     const healGain = sumMod(p, 'endureHeal');
     p.composure = clamp(p.composure + compGain, 0, COMPOSURE_MAX);
-    pushLog({ text: pat.def.flavor?.endure || `I plant my feet. I do not look away.`, cls: 'narr' });
-    await drainLog(true);
-    if (healGain > 0) heal(p, healGain, 'a small steadiness');
-    // mark this player as bracing — patient's next hit deals half
+    if (healGain > 0) heal(p, healGain);
     p._bracing = true;
-    // (the patient's damage code reads p._bracing to halve damage)
+    enc._flags.willBrace = true;
+    const diff = diffSince(before);
+    pushLog(attachDiff(
+      { text: pat.def.flavor?.endure || `I plant my feet. I do not look away.`, cls: 'narr' },
+      diff, 'self'));
+    await drainLog();
     return true;
   }
 
   if (key === 'listen') {
+    clearFlags();
+    const before = snapshotEnc();
     const baseN = 2 + sumMod(p, 'listenReveal');
     const compGain = Math.max(0, 1 + sumMod(p, 'listenCompGain'));
     p.composure = clamp(p.composure + compGain, 0, COMPOSURE_MAX);
-    pushLog({ text: pat.def.flavor?.listen || `I listen. I count the breaths between.`, cls: 'narr' });
-    await drainLog(true);
-    // reveal: ensure queue has at least baseN poses
     while (pat.queue.length < baseN) {
       pat.queue.push(pat.def.produceNextPose(pat, p, state.enc.turn + pat.queue.length));
     }
     enc.revealCount = baseN;
+    enc._flags.queueRevealed = baseN;
     const lctx = mkCtx();
     fireTraitHooks(p, 'onListen', lctx);
+    const diff = diffSince(before);
+    pushLog(attachDiff(
+      { text: pat.def.flavor?.listen || `I listen. I count the breaths between.`, cls: 'narr' },
+      diff, 'self'));
+    await drainLog();
     return true;
   }
 
@@ -458,11 +564,8 @@ async function executePlayerAction(key, ctx) {
       await drainLog();
       return false;
     }
-    pushLog({ text: pat.def.flavor?.speak || `I say her name. the room narrows.`, cls: 'narr' });
-    await drainLog(true);
-    // speak's mechanical effect is patient-defined: each patient's def can
-    // implement onSpeak(ctx) returning an effect described in their own
-    // vocabulary. Default: apply 1 KNOW to the patient.
+    clearFlags();
+    const before = snapshotEnc();
     const ectx = mkCtx();
     fireTraitHooks(p, 'onSpeakEffect', ectx);
     const mult = ectx.speakMult || 1;
@@ -470,9 +573,12 @@ async function executePlayerAction(key, ctx) {
       pat.def.onSpeak(pat, p, mult);
     } else {
       applyStatus(pat, 'know', 1 * mult);
-      pushLog({ text: `she hears it. she ~~recognizes~~ acknowledges.`, cls: 'flavor' });
     }
-    await drainLog(true);
+    const diff = diffSince(before);
+    pushLog(attachDiff(
+      { text: pat.def.flavor?.speak || `I say her name. the room narrows.`, cls: 'narr' },
+      diff, 'self'));
+    await drainLog();
     return true;
   }
 
@@ -483,14 +589,19 @@ async function executePlayerAction(key, ctx) {
       await drainLog();
       return false;
     }
+    clearFlags();
+    const before = snapshotEnc();
     sig.usesLeft--;
     const t = TRAITS[sig.id];
-    pushLog({ text: t.voice || `(${t.name})`, cls: 'sig' });
-    await drainLog(true);
     const sctx = mkCtx();
     fireTraitHooks(p, 'onSignature', sctx);
-    // propagate flags to the outer ctx
+    // propagate flags to the outer ctx so engine sees grantExtraAction etc.
     Object.assign(ctx, sctx);
+    const diff = diffSince(before);
+    pushLog(attachDiff(
+      { text: t.voice || `(${t.name})`, cls: 'sig' },
+      diff, 'self'));
+    await drainLog();
     return true;
   }
 
@@ -505,25 +616,29 @@ async function runPatientTurn() {
   const enc = state.enc;
   if (!enc.patient.queue.length) refillQueue(enc.patient, enc.player);
   const pose = enc.patient.queue.shift();
-  // hook: check if a player effect cancelled the pose (e.g. sig_absence)
+  // hook: a player effect can cancel the pose (e.g. sig_absence)
   if (enc._cancelNextPose) {
     enc._cancelNextPose = false;
-    pushLog({ text: `she begins to ${pose.name.toLowerCase()}. ~~she~~ the moment does not arrive.`, cls: 'flavor', pause: 500 });
+    pushLog({ text: `she begins to ${pose.name.toLowerCase()}. ~~she~~ the moment does not arrive.`, cls: 'flavor' });
     await drainLog();
     refillQueue(enc.patient, enc.player);
     return;
   }
-  // run pose effect
-  if (pose.tell) {
-    pushLog({ text: pose.tell, cls: 'pose' });
-    await drainLog(true);
-  }
+  // Run the pose effect, then push a single log entry whose text is the
+  // pose's tell and whose tags spell out exactly what just happened.
+  clearFlags();
+  const before = snapshotEnc();
   if (typeof pose.effect === 'function') {
     const ctx = mkCtx();
     ctx.pose = pose;
     try { pose.effect(ctx); } catch (e) { console.error('pose effect error', pose.name, e); }
   }
-  // clear bracing after patient acts
+  const diff = diffSince(before);
+  const entry = attachDiff({ text: pose.tell || `she ${pose.name.toLowerCase()}.`, cls: 'pose' }, diff, 'patient');
+  pushLog(entry);
+  await drainLog();
+  // bracing is consumed during dealDamage when it fires; clear it here in
+  // case the pose did not deal any damage (it expires either way).
   enc.player._bracing = false;
   refillQueue(enc.patient, enc.player);
 }
@@ -541,10 +656,14 @@ async function endOfTurnTicks() {
       fireTraitHooks(enc.player, 'onBleedTick', ctx);
       const dmg = Math.max(0, ctx.amount);
       if (dmg > 0) {
-        pushLog({ text: target === enc.player ? `I am bleeding.` : `she is ~~bleeding~~ leaving.`, damage: dmg, cls: 'tick' });
-        await drainLog(true);
+        clearFlags();
+        const before = snapshotEnc();
         dealDamage(target, dmg, { source: 'bleed', silent: true });
         spawnFloat(target === enc.player ? 'player' : 'patient', `-${dmg}`, 'dmg');
+        const diff = diffSince(before);
+        const text = target === enc.player ? `I am bleeding.` : `she is ~~bleeding~~ leaving.`;
+        pushLog(attachDiff({ text, cls: 'tick' }, diff, 'tick'));
+        await drainLog();
       }
       target.statuses.bleed = Math.max(0, target.statuses.bleed - 1);
       if (target.hp === 0) break;
@@ -621,24 +740,62 @@ async function onPatientPhaseDown() {
 }
 
 // ─── log draining ───────────────────────────────────────────────────────
+//
+// The combat engine pushes log entries freely; drainLog walks each one in
+// turn. For each unread entry it:
+//   1) marks the entry as the one being shown (state.shownLogIdx)
+//   2) starts the typewriter (state.typingIdx === shownLogIdx)
+//   3) waits until typing is done OR the player clicks (click skips the
+//      typewriter and reveals the full text instantly)
+//   4) waits for a second click to advance to the next entry
+//
+// The player drives pacing — no auto-advance. advanceLog() (exported) is
+// the click handler.
 
-// Each pushed log entry has a pause (default depends on length). We render
-// once per entry, advance state.typingIdx so the UI typewriter-animates the
-// latest, then sleep enough for the player to read.
-async function drainLog(intra) {
-  // The most recent entry is the one to type.
-  const idx = state.log.length - 1;
-  if (idx < 0) return;
-  state.typingIdx = idx;
+async function drainLog() {
+  while (state.shownLogIdx < state.log.length - 1) {
+    const idx = state.shownLogIdx + 1;
+    state.shownLogIdx = idx;
+    state.typingIdx = idx;
+    state.logAwaitingClick = false;
+    render();
+
+    const entry = state.log[idx];
+    const txtLen = (entry.text || '').length;
+    const typeMs = Math.min(txtLen * 14, 1100);
+
+    // typewriter phase: either typing completes or the player clicks to skip
+    await Promise.race([
+      sleep(typeMs),
+      new Promise(r => { state._typeSkipResolve = r; }),
+    ]);
+    state._typeSkipResolve = null;
+    state.typingIdx = -1;
+    state.logAwaitingClick = true;
+    render();
+
+    // advance phase: wait for click to move to the next entry
+    await new Promise(resolve => { state._logClickResolve = resolve; });
+    state._logClickResolve = null;
+    state.logAwaitingClick = false;
+  }
   render();
-  const entry = state.log[idx];
-  const txtLen = (entry.text || '').length;
-  // typewriter pacing: a moderate-length line types in under a second; intra-
-  // action restMs is small so combat flows briskly.
-  const typeMs = Math.min(txtLen * 14, 1400);
-  const restMs = entry.pause != null ? entry.pause : (intra ? 140 : 280);
-  await sleep(typeMs + restMs);
-  state.typingIdx = -1;
+}
+
+// Player tapped the narrative box (or pressed space/enter). If the
+// typewriter is mid-flight, finish it; otherwise advance to the next entry.
+export function advanceLog() {
+  if (state._typeSkipResolve) {
+    const r = state._typeSkipResolve;
+    state._typeSkipResolve = null;
+    r();
+    return;
+  }
+  if (state._logClickResolve) {
+    const r = state._logClickResolve;
+    state._logClickResolve = null;
+    r();
+  }
 }
 
 // ─── resolution selection ──────────────────────────────────────────────

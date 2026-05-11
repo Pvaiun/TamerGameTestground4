@@ -18,9 +18,17 @@ export const state = {
   // ── encounter live state (set by combat engine while screen === 'encounter')
   enc:   null,
 
-  // ── narration / typing
+  // ── narration / typing / click-to-advance
+  // The combat engine pushes log entries freely; drainLog walks each one
+  // in turn (typing it out, waiting for a player click, then advancing).
+  // shownLogIdx is the index of the entry currently visible. The narrative
+  // window reads this — not the latest — so unread entries queue up cleanly.
   log: [],
-  typingIdx: -1,
+  shownLogIdx: -1,           // current index of the entry the player is reading
+  typingIdx: -1,             // index currently typewriting (-1 when idle)
+  logAwaitingClick: false,   // true while the engine waits for the player to acknowledge
+  _logClickResolve: null,    // promise resolver for "advance to next entry"
+  _typeSkipResolve: null,    // promise resolver for "skip the typewriter on this entry"
 
   // ── pending UI gates
   acting: false,
@@ -46,7 +54,14 @@ export function pushLog(text, opts) {
   if (state.log.length > 80) state.log.shift();
 }
 
-export function clearLog() { state.log.length = 0; state.typingIdx = -1; }
+export function clearLog() {
+  state.log.length = 0;
+  state.shownLogIdx = -1;
+  state.typingIdx = -1;
+  state.logAwaitingClick = false;
+  state._logClickResolve = null;
+  state._typeSkipResolve = null;
+}
 
 let _idCounter = 1;
 export function nextId() { return _idCounter++; }

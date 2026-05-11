@@ -4,7 +4,7 @@
 
 import { el, app, attachLongPress } from './dom.js';
 import { state, COMPOSURE_MAX, POSE_QUEUE_VISIBLE } from '../state.js';
-import { isPlayerTurn, playerAct, STATUSES } from '../combat.js';
+import { isPlayerTurn, playerAct, STATUSES, advanceLog } from '../combat.js';
 import { renderGlyph } from './glyphs.js';
 import { parseProse } from './textCorrupt.js';
 import { TRAITS } from '../traits.js';
@@ -240,9 +240,11 @@ function poseQueueEl(enc) {
 // ── narrative + actions ─────────────────────────────────────────────────
 function narrativeOrActionsEl(enc) {
   const box = el('div', { class: 'enc-bottom' });
-  // narrative window (always present, shows the latest log entry)
   box.appendChild(narrativeWindowEl());
-  // action menu (shown when waiting for player; otherwise hidden)
+  // While the log still has unread entries, suppress both the action menu
+  // and the loss panel — the player should finish reading first.
+  const logBusy = state.typingIdx >= 0 || state.logAwaitingClick;
+  if (logBusy) return box;
   if (enc.awaitingPlayer && !state.acting) {
     box.appendChild(actionMenuEl(enc));
   } else if (enc.over && enc.outcome === 'lost') {
@@ -252,16 +254,22 @@ function narrativeOrActionsEl(enc) {
 }
 
 function narrativeWindowEl() {
-  const wrap = el('div', { class: 'enc-narr' });
+  // The window shows the entry at state.shownLogIdx — NOT the latest. The
+  // combat engine drives shownLogIdx forward as the player clicks through
+  // each log entry. Typewriter animates while state.typingIdx === shownLogIdx.
+  const clickable = state.typingIdx >= 0 || state.logAwaitingClick;
+  const wrap = el('div', { class: 'enc-narr' + (clickable ? ' clickable' : '') });
   wrap.appendChild(el('div', { class: 'enc-section-label' }, '─ the room ─'));
-  const entry = state.log.length ? state.log[state.log.length - 1] : null;
+
+  const idx = state.shownLogIdx;
+  const entry = idx >= 0 ? state.log[idx] : null;
   const line = el('div', { class: 'enc-narr-line' + (entry ? ' ' + (entry.cls || '') : '') });
   if (!entry) {
     line.appendChild(el('span', {}, '—'));
   } else {
     const text = el('span', { class: 'enc-narr-text' });
     const html = parseProse(entry.text || '');
-    const typing = (state.log.length - 1) === state.typingIdx;
+    const typing = idx === state.typingIdx;
     if (typing) text.innerHTML = typewriterize(html, 22);
     else        text.innerHTML = html;
     line.appendChild(text);
@@ -269,6 +277,16 @@ function narrativeWindowEl() {
     else if (entry.heal > 0) line.appendChild(el('span', { class: 'enc-narr-heal' }, `+${entry.heal}`));
   }
   wrap.appendChild(line);
+
+  // continue prompt — shown when typing is done and we're waiting for click.
+  // While typing, clicking skips the typewriter; once done, clicking advances.
+  if (clickable) {
+    const prompt = el('div', { class: 'enc-narr-prompt' });
+    prompt.appendChild(el('span', { class: 'enc-narr-prompt-cursor' }, '▸ '));
+    prompt.appendChild(el('span', {}, state.typingIdx >= 0 ? 'skip' : 'continue'));
+    wrap.appendChild(prompt);
+    wrap.addEventListener('click', advanceLog);
+  }
   return wrap;
 }
 
