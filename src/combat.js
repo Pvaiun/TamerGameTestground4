@@ -46,7 +46,14 @@ export function makePlayer(wound) {
 }
 
 export function recomputePlayerStats(player) {
-  player.composureMax = COMPOSURE_MAX + sumMod(player, 'composureMax');
+  // composureMax: base + wound mod + trait/signature mods. (sumMod only sees
+  // traits and signature — wound mods are separate and need to be added
+  // explicitly, just like with startComposure.)
+  const w = WOUNDS[player.wound];
+  player.composureMax = COMPOSURE_MAX
+    + (w?.mods.composureMax || 0)
+    + sumMod(player, 'composureMax');
+  // scars then cap the max from above (e.g. Witnessed caps at 4).
   for (const sid of player.scars || []) {
     const s = SCARS[sid];
     if (s && typeof s.composureCap === 'number') {
@@ -89,15 +96,21 @@ export function beginEncounter(patientDef, player) {
   }
 
   // Composure CARRIES across encounters — corridor events and trait heals
-  // accumulate. At fight start we apply only scar deltas (e.g. Abandoned: -1)
-  // and clamp to the (possibly trait-modified) max.
+  // accumulate. The wound's startComposure is a per-fight BASELINE: composure
+  // can carry above it from events, but is raised TO it at fight start if
+  // depleted. Scar startComposureDeltas reduce the baseline (Abandoned: -1),
+  // never below an absolute floor of 1 so the player can always do at least
+  // one cost-1 verb (and WAIT / 0-cost verbs are always available).
   recomputePlayerStats(player);
+  const w = WOUNDS[player.wound];
+  const ABS_FLOOR = 1;
+  let baseline = (w?.mods.startComposure || 0) + sumMod(player, 'startComposure');
   for (const sid of player.scars || []) {
     const s = SCARS[sid];
-    if (s && typeof s.startComposureDelta === 'number') {
-      player.composure = Math.max(0, player.composure + s.startComposureDelta);
-    }
+    if (s && typeof s.startComposureDelta === 'number') baseline += s.startComposureDelta;
   }
+  baseline = Math.max(ABS_FLOOR, Math.min(player.composureMax, baseline));
+  player.composure = Math.max(baseline, player.composure);
   player.composure = Math.min(player.composureMax, player.composure);
   if (player.signature) player.signature.usesLeft = 1;
 
