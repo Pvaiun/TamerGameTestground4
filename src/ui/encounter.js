@@ -9,7 +9,7 @@
 
 import { el, app } from './dom.js';
 import { state, COMPOSURE_MAX } from '../state.js';
-import { isPlayerTurn, playerVerb, advanceLog, effectiveVerbCost } from '../combat.js';
+import { isPlayerTurn, playerVerb, advanceLog } from '../combat.js';
 import { renderGlyph } from './glyphs.js';
 import { parseProse } from './textCorrupt.js';
 import { TRAITS } from '../traits.js';
@@ -135,20 +135,22 @@ function scaleListEl(patient) {
   }
   const list = el('div', { class: 'enc-scale-list' });
   for (const [key, def] of entries) {
+    const kind = def.kind || '';   // 'positive' | 'negative' | ''
     const row = el('div', { class: 'enc-scale-row' });
-    row.appendChild(el('span', { class: 'enc-scale-name' }, def.label || key));
+    row.appendChild(el('span', { class: 'enc-scale-name ' + kind }, def.label || key));
     if (revealed.includes(key)) {
       const max = def.max ?? 5;
       const val = patient.scales[key] ?? 0;
       const pips = el('span', { class: 'enc-scale-pips' });
       for (let i = 0; i < max; i++) {
-        pips.appendChild(el('span', { class: 'enc-scale-pip' + (i < val ? ' lit' : '') }, i < val ? '●' : '○'));
+        const cls = 'enc-scale-pip' + (i < val ? ' lit ' + kind : '');
+        pips.appendChild(el('span', { class: cls }, i < val ? '●' : '○'));
       }
       row.appendChild(pips);
     } else {
-      row.appendChild(el('span', { class: 'enc-scale-veil' }, '~~?~~'));
-      const veil = row.querySelector('.enc-scale-veil');
+      const veil = el('span', { class: 'enc-scale-veil' });
       veil.innerHTML = parseProse('~~?~~');
+      row.appendChild(veil);
     }
     list.appendChild(row);
   }
@@ -194,23 +196,6 @@ function playerEffectsRowEl() {
   return wrap;
 }
 
-function scarRowEl(player) {
-  const wrap = el('div', { class: 'enc-stat-row' });
-  wrap.appendChild(el('span', { class: 'enc-stat-label' }, 'scars'));
-  const scars = (player.scars || []).filter(s => SCARS[s]);
-  if (!scars.length) {
-    wrap.appendChild(el('span', { class: 'enc-status-empty' }, '— '));
-    return wrap;
-  }
-  const list = el('span', { class: 'enc-scar-list' });
-  scars.forEach((sid, i) => {
-    if (i > 0) list.appendChild(el('span', { class: 'enc-cond-sep' }, ' · '));
-    list.appendChild(el('span', { class: 'enc-scar', title: SCARS[sid].desc }, SCARS[sid].name));
-  });
-  wrap.appendChild(list);
-  return wrap;
-}
-
 function traitListEl(player) {
   const wrap = el('div', { class: 'enc-trait-block' });
   wrap.appendChild(el('div', { class: 'enc-stat-label' }, 'traits'));
@@ -219,12 +204,33 @@ function traitListEl(player) {
     wrap.appendChild(el('div', { class: 'enc-status-empty' }, '— none yet —'));
     return wrap;
   }
+  // Stacked as plain divs so narrow viewports don't smash name + desc together.
   const list = el('div', { class: 'enc-trait-stack' });
   for (const tid of traits) {
     const t = TRAITS[tid];
-    const row = el('div', { class: 'enc-trait-line' });
-    row.appendChild(el('span', { class: 'enc-trait-name' }, t.name));
-    row.appendChild(el('span', { class: 'enc-trait-desc' }, t.desc));
+    const row = el('div', { class: 'enc-trait-card' });
+    row.appendChild(el('div', { class: 'enc-trait-card-name' }, t.name));
+    row.appendChild(el('div', { class: 'enc-trait-card-desc' }, t.desc));
+    list.appendChild(row);
+  }
+  wrap.appendChild(list);
+  return wrap;
+}
+
+function scarRowEl(player) {
+  const wrap = el('div', { class: 'enc-trait-block' });
+  wrap.appendChild(el('div', { class: 'enc-stat-label' }, 'scars'));
+  const scars = (player.scars || []).filter(s => SCARS[s]);
+  if (!scars.length) {
+    wrap.appendChild(el('div', { class: 'enc-status-empty' }, '— none —'));
+    return wrap;
+  }
+  const list = el('div', { class: 'enc-trait-stack' });
+  for (const sid of scars) {
+    const s = SCARS[sid];
+    const row = el('div', { class: 'enc-trait-card scar' });
+    row.appendChild(el('div', { class: 'enc-trait-card-name' }, s.name));
+    row.appendChild(el('div', { class: 'enc-trait-card-desc' }, s.desc));
     list.appendChild(row);
   }
   wrap.appendChild(list);
@@ -287,11 +293,29 @@ function narrativeWindowEl() {
 }
 
 function verbMenuEl(enc) {
+  // Two modes: interjection (patient asks something, player picks a response)
+  // or normal verb menu (filtered by each verb's when() predicate).
+  if (enc.activeInterjection) return interjectionMenuEl(enc);
   const wrap = el('div', { class: 'enc-actions' });
   wrap.appendChild(el('div', { class: 'enc-section-label' }, '─ what I may do ─'));
   const grid = el('div', { class: 'enc-actions-grid' });
-  const acts = listVerbs(enc);
-  for (const a of acts) grid.appendChild(verbButton(a));
+  for (const a of listVerbs(enc)) grid.appendChild(verbButton(a));
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+function interjectionMenuEl(enc) {
+  const wrap = el('div', { class: 'enc-actions interjection' });
+  wrap.appendChild(el('div', { class: 'enc-section-label' }, '─ how I answer ─'));
+  const grid = el('div', { class: 'enc-actions-grid' });
+  enc.activeInterjection.responses.forEach((r, idx) => {
+    const btn = el('button', { class: 'enc-act interjection-resp' });
+    btn.addEventListener('click', () => playerVerb(String(idx)));
+    btn.appendChild(el('span', { class: 'enc-act-marker' }, '▸'));
+    btn.appendChild(el('span', { class: 'enc-act-label' }, r.label));
+    if (r.desc) btn.appendChild(el('span', { class: 'enc-act-desc', html: parseProse(r.desc) }));
+    grid.appendChild(btn);
+  });
   wrap.appendChild(grid);
   return wrap;
 }
@@ -301,24 +325,22 @@ function listVerbs(enc) {
   const pat = enc.patient;
   const acts = [];
   for (const [id, v] of Object.entries(pat.def.verbs || {})) {
-    const cost = effectiveVerbCost(p, v);
-    const disabled = cost > p.composure;
-    acts.push({
-      id, label: v.label.toUpperCase(),
-      desc: v.desc || '',
-      cost,
-      disabled,
-    });
+    // contextual gating — verbs may declare when(patient, player) and only
+    // appear in the menu when their condition is met. Verbs with no when()
+    // are always available.
+    if (typeof v.when === 'function') {
+      try { if (!v.when(pat, p)) continue; } catch (e) { continue; }
+    }
+    acts.push({ id, label: v.label.toUpperCase(), desc: v.desc || '' });
   }
-  acts.push({ id: 'wait', label: 'WAIT', desc: 'let the room move on its own.', cost: 0 });
-  acts.push({ id: 'leave', label: 'LEAVE', desc: 'close the door behind you. composure −2. ~~it leaves a mark.~~', cost: 0, danger: true });
+  acts.push({ id: 'wait', label: 'WAIT', desc: 'let the room move on its own.' });
+  acts.push({ id: 'leave', label: 'LEAVE', desc: 'close the door behind you. composure −2. ~~it leaves a mark.~~', danger: true });
   if (p.signature && p.signature.usesLeft > 0) {
     const t = TRAITS[p.signature.id];
     acts.push({
       id: 'signature',
       label: (t ? t.name : 'SIGNATURE').toUpperCase(),
       desc: t ? t.desc : '',
-      cost: 0,
       signature: true,
     });
   }
@@ -327,16 +349,13 @@ function listVerbs(enc) {
 
 function verbButton(act) {
   const cls = 'enc-act'
-    + (act.disabled ? ' disabled' : '')
     + (act.signature ? ' sig' : '')
     + (act.danger ? ' danger' : '');
   const btn = el('button', { class: cls });
-  if (act.disabled) btn.disabled = true;
-  else btn.addEventListener('click', () => playerVerb(act.id));
+  btn.addEventListener('click', () => playerVerb(act.id));
   btn.appendChild(el('span', { class: 'enc-act-marker' }, '▸'));
   btn.appendChild(el('span', { class: 'enc-act-label' }, act.label));
-  const tag = act.cost > 0 ? `cost ${act.cost}` : (act.signature ? 'once' : '');
-  if (tag) btn.appendChild(el('span', { class: 'enc-act-tag' }, tag));
+  if (act.signature) btn.appendChild(el('span', { class: 'enc-act-tag' }, 'once'));
   btn.appendChild(el('span', { class: 'enc-act-desc', html: parseProse(act.desc || '') }));
   return btn;
 }

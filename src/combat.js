@@ -143,25 +143,57 @@ async function runEncounterIntro() {
     pushLog({ text: l, cls: 'intro' });
     await drainLog();
   }
+  // a patient may interject immediately if their opening condition matches.
+  await maybeFireInterjection();
   state.acting = false;
   enc.awaitingPlayer = true;
   render();
 }
 
-// ─── verb dispatch ──────────────────────────────────────────────────────
+// ─── verb / interjection dispatch ──────────────────────────────────────
+//
+// Verbs are no longer gated by composure cost. Composure is your run-long
+// health track; you lose it as a CONSEQUENCE of risky verbs or patient
+// reactions, never as a precondition to act.
+//
+// Verbs can declare a `when(patient, player)` predicate; the UI hides
+// verbs whose predicate returns false. So the available action set shifts
+// as the patient changes state — different scales surface different
+// possibilities.
+//
+// Interjections are patient-initiated turns. Each patient may declare a
+// list of interjections (`{ id, when, once?, prose: [...], responses: [...] }`).
+// When the player would normally act, we check interjections first; if
+// one fires, its responses replace the verb menu for that turn.
+//
+// `patient.flags.lastVerb` and `patient.flags.streak` are tracked by the
+// engine so authored responses can branch when the player repeats a verb.
 
 export async function playerVerb(verbId) {
   const enc = state.enc;
   if (!enc || !enc.awaitingPlayer || state.acting) return;
   state.acting = true;
   enc.awaitingPlayer = false;
-  await runPlayerVerb(verbId);
+  if (enc.activeInterjection) {
+    await runInterjectionResponse(parseInt(verbId, 10));
+  } else {
+    await runPlayerVerb(verbId);
+  }
 }
 
 async function runPlayerVerb(verbId) {
   const enc = state.enc;
   const p = enc.player;
   const pat = enc.patient;
+
+  // streak tracking — authored responses can read pat.flags.lastVerb and
+  // pat.flags.streak to make repeated verbs land differently.
+  if (pat.flags.lastVerb === verbId) {
+    pat.flags.streak = (pat.flags.streak || 1) + 1;
+  } else {
+    pat.flags.streak = 1;
+  }
+  pat.flags.lastVerb = verbId;
 
   if (verbId === 'wait') {
     await applyResponse(callDrift(pat, p));
@@ -180,36 +212,53 @@ async function runPlayerVerb(verbId) {
       await drainLog();
       state.acting = false; enc.awaitingPlayer = true; render(); return;
     }
-    const cost = effectiveVerbCost(p, verb);
-    if (cost > 0 && p.composure < cost) {
-      pushLog({ text: `I cannot. ~~I am~~ I am not composed enough.  (needed ${cost}, had ${p.composure})`, cls: 'flavor' });
-      await drainLog();
-      state.acting = false; enc.awaitingPlayer = true; render(); return;
-    }
-    if (cost > 0) p.composure = Math.max(0, p.composure - cost);
     const resp = (typeof verb.respond === 'function')
       ? verb.respond(pat, p)
       : { lines: ['nothing happens.'] };
     await applyResponse(resp);
   }
 
-  // post-verb trait hooks (e.g. calming/vigilant/patience all hook onPlayerVerb)
   fireTraitHooks(p, 'onPlayerVerb', {
     enc, player: p, patient: pat, verbId,
     composure(delta) { p.composure = clamp(p.composure + delta, 0, p.composureMax); },
     log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
   });
-  // drain any extra log lines those hooks pushed (e.g. composure +1)
   if (state.shownLogIdx < state.log.length - 1) await drainLog();
 
   pat.turn++;
+  await postTurn();
+}
+
+async function runInterjectionResponse(idx) {
+  const enc = state.enc;
+  const pat = enc.patient;
+  const intr = enc.activeInterjection;
+  const resp = intr.responses[idx];
+  enc.activeInterjection = null;
+  pat.flags.lastVerb = `interjection:${intr.id}`;
+  pat.flags.streak = 1;
+  if (resp) await applyResponse(resp);
+  fireTraitHooks(enc.player, 'onPlayerVerb', {
+    enc, player: enc.player, patient: pat, verbId: `interjection:${intr.id}`,
+    composure(delta) { enc.player.composure = clamp(enc.player.composure + delta, 0, enc.player.composureMax); },
+    log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
+  });
+  if (state.shownLogIdx < state.log.length - 1) await drainLog();
+  pat.turn++;
+  await postTurn();
+}
+
+// Common end-of-turn handler: check endings, then composure, then maybe
+// fire an interjection before handing back to the player.
+async function postTurn() {
+  const enc = state.enc;
+  const p = enc.player;
+  const pat = enc.patient;
   const ending = checkEndings(pat, p);
   if (ending) { await fireEnding(ending); return; }
   if (p.composure <= 0) {
-    // give vessel_for_ghosts a chance to catch the collapse
     const cctx = {
-      enc, player: p, patient: pat,
-      cancel: false,
+      enc, player: p, patient: pat, cancel: false,
       composure(delta) { p.composure = clamp(p.composure + delta, 0, p.composureMax); },
       log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
     };
@@ -217,9 +266,32 @@ async function runPlayerVerb(verbId) {
     if (state.shownLogIdx < state.log.length - 1) await drainLog();
     if (!cctx.cancel) { await fireCollapse(); return; }
   }
+  // Look for an interjection to fire before the next player turn.
+  await maybeFireInterjection();
   state.acting = false;
   enc.awaitingPlayer = true;
   render();
+}
+
+async function maybeFireInterjection() {
+  const enc = state.enc;
+  const pat = enc.patient;
+  const player = enc.player;
+  for (const intr of pat.def.interjections || []) {
+    if (intr.once && pat.flags['_fired_' + intr.id]) continue;
+    let matches = false;
+    try { matches = !!intr.when(pat, player); } catch (e) { console.error('interjection when', intr.id, e); }
+    if (!matches) continue;
+    enc.activeInterjection = intr;
+    pat.flags['_fired_' + intr.id] = true;
+    const proseLines = Array.isArray(intr.prose) ? intr.prose : (intr.prose ? [intr.prose] : []);
+    for (const l of proseLines) {
+      pushLog({ text: l, cls: 'interjection' });
+      await drainLog();
+    }
+    return true;
+  }
+  return false;
 }
 
 function callDrift(pat, player) {
@@ -353,6 +425,7 @@ async function fireEnding(ending) {
   enc.outcome = 'resolved';
   enc.endingId = ending.id;
   enc.endingTitle = ending.title;
+  enc.endingLines = lines;       // stored for archive recap
   enc.pendingTrait = trait;
   enc.pendingScars = filteredScars;
   enc.awaitingResolution = true;
@@ -448,18 +521,11 @@ export function isPlayerTurn() {
   return !!(state.enc && state.enc.awaitingPlayer && !state.acting);
 }
 
-// Effective cost of a verb after trait mods + scar verbCostMod functions.
-// Exported so the UI can display the actual cost (after Empty Arms / Named).
-export function effectiveVerbCost(player, verb) {
-  let cost = (verb.cost || 0) + sumMod(player, 'verbCostMod');
-  for (const sid of player.scars || []) {
-    const s = SCARS[sid];
-    if (s && typeof s.verbCostMod === 'function') {
-      cost = s.verbCostMod(cost, verb);
-    }
-  }
-  return Math.max(0, cost);
-}
+// Legacy: verbs no longer have an upfront composure cost. Composure
+// changes happen inside the verb's response (composure: -N), as a
+// consequence of context, not a precondition. Kept exported for any
+// remaining callers; always returns 0 now.
+export function effectiveVerbCost(_player, _verb) { return 0; }
 
 // ─── helpers ────────────────────────────────────────────────────────────
 

@@ -431,13 +431,32 @@ export function renderArchive() {
       for (const r of summary.resolutions) {
         const t = r.trait ? TRAITS[r.trait] : null;
         const p = PATIENTS[r.patient];
-        list.appendChild(el('div', { class: 'archive-res-line' }, [
+        const card = el('div', { class: 'archive-res-card' });
+        card.appendChild(el('div', { class: 'archive-res-header' }, [
           el('span', { class: 'archive-res-patient' }, p ? p.name : `[${r.patient}]`),
-          el('span', { class: 'archive-res-sep' }, ' · '),
-          el('span', { class: 'archive-res-key' }, r.endingTitle || r.endingId || '—'),
-          el('span', { class: 'archive-res-sep' }, ' · '),
-          el('span', { class: 'archive-res-trait' }, t ? t.name : 'no trait'),
+          el('span', { class: 'archive-res-sep' }, ' — '),
+          el('span', { class: 'archive-res-key' }, r.endingTitle || r.endingId || 'unresolved'),
         ]));
+        // ending prose recap, if recorded
+        if (Array.isArray(r.endingLines) && r.endingLines.length) {
+          const prose = el('div', { class: 'archive-res-prose' });
+          for (const line of r.endingLines) {
+            prose.appendChild(el('div', { class: 'archive-res-line-prose', html: parseProse(line) }));
+          }
+          card.appendChild(prose);
+        }
+        // trait + scars taken
+        const footer = el('div', { class: 'archive-res-footer' });
+        footer.appendChild(el('span', { class: 'archive-res-trait-label' }, 'kept · '));
+        footer.appendChild(el('span', { class: 'archive-res-trait' }, t ? t.name : 'nothing'));
+        if (r.scars && r.scars.length) {
+          footer.appendChild(el('span', { class: 'archive-res-sep' }, ' · '));
+          footer.appendChild(el('span', { class: 'archive-res-trait-label' }, 'scars · '));
+          footer.appendChild(el('span', { class: 'archive-res-scars' },
+            r.scars.map(s => (SCARS[s] ? SCARS[s].name : s)).join(', ')));
+        }
+        card.appendChild(footer);
+        list.appendChild(card);
       }
       page.appendChild(list);
     }

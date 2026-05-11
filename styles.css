@@ -1694,3 +1694,79 @@
     line-height: 1.5;
     margin-top: 2px;
   }
+
+  /* trait + scar cards — stacked, name + desc each on their own line.
+     same robust pattern as the signature block. */
+  .enc-trait-card {
+    padding: 4px 0;
+    border-bottom: 1px dotted var(--rule-faint);
+    margin-bottom: 2px;
+  }
+  .enc-trait-card:last-child { border-bottom: none; }
+  .enc-trait-card-name {
+    color: var(--doc-gold);
+    font-size: var(--fs-body-tight);
+    letter-spacing: 0.5px;
+    line-height: 1.3;
+  }
+  .enc-trait-card.scar .enc-trait-card-name { color: var(--doc-blood); }
+  .enc-trait-card-desc {
+    color: var(--ink-80);
+    font-size: var(--fs-body-tight);
+    line-height: 1.45;
+    margin-top: 2px;
+  }
+
+  /* interjection menu — the patient asks; you answer */
+  .enc-actions.interjection {
+    border-left: 2px solid var(--doc-gold);
+    padding-left: var(--space-2);
+  }
+  .enc-act.interjection-resp {
+    border-left: 2px solid var(--doc-gold);
+    padding-left: var(--space-2);
+  }
+  .enc-narr-line.interjection {
+    color: var(--doc-gold);
+    border-left-color: var(--doc-gold);
+    font-style: italic;
+  }
+
+  /* scale kind hints — positive scales light up in gold, negative in red */
+  .enc-scale-pip.lit.positive { color: var(--doc-gold); }
+  .enc-scale-pip.lit.negative { color: var(--doc-blood); }
+  .enc-scale-name.positive    { color: var(--ink-100); }
+  .enc-scale-name.negative    { color: var(--doc-blood); }
+
+  /* archive recap cards */
+  .archive-res-card {
+    padding: var(--space-2) 0;
+    margin-bottom: var(--space-3);
+    border-bottom: 1px dotted var(--rule-faint);
+  }
+  .archive-res-header {
+    font-size: var(--fs-body);
+    color: var(--ink-100);
+    margin-bottom: var(--space-1);
+  }
+  .archive-res-header .archive-res-patient { color: var(--ink-100); letter-spacing: 0.5px; }
+  .archive-res-header .archive-res-key    { color: var(--doc-gold); }
+  .archive-res-prose {
+    padding: var(--space-1) var(--space-2) var(--space-2);
+    margin: 4px 0;
+    border-left: 2px solid var(--rule-faint);
+  }
+  .archive-res-line-prose {
+    font-size: var(--fs-body-tight);
+    color: var(--ink-80);
+    line-height: 1.55;
+    padding: 1px 0;
+  }
+  .archive-res-footer {
+    font-size: var(--fs-body-tight);
+    color: var(--ink-80);
+    margin-top: var(--space-1);
+  }
+  .archive-res-trait-label { color: var(--ink-60); }
+  .archive-res-trait { color: var(--doc-gold); }
+  .archive-res-scars { color: var(--doc-blood); }
