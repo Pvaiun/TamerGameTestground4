@@ -1,75 +1,52 @@
-// Global game state and lifecycle helpers. Most modules import `state` and mutate
-// it directly. The renderer reads `state.screen` to dispatch to a screen renderer.
+// Global mutable game state. Imported by every module that needs to read or
+// write state; the renderer reads state.screen and dispatches.
+//
+// The whole app is one document. A "run" is a single descent from admission
+// to discharge (or to whatever takes you). state.run holds the per-run state;
+// state.save holds persistent meta progression (loaded from localStorage).
 
-export const TOTAL_WAVES = 10;
-export const BREED_WAVES = new Set([3, 6, 9]);
-export const MAX_LEVEL = 50;
+export const RUN_DEPTH = 5;          // number of wings before the final encounter
+export const COMPOSURE_MAX = 5;
+export const POSE_QUEUE_VISIBLE = 3; // how many of the patient's upcoming poses we show
 
+// The single state object. All modules mutate it directly.
 export const state = {
-  screen: 'start',
-  wave: 0,
-  party: [],
-  reserve: [],
-  activeIdx: 0,
-  enemy: null,
-  enemyParty: [],
-  enemyActiveIdx: 0,
-  pf: null,
-  bf: null,
-  ef: null,
-  ebf: null,
+  screen: 'title',
+  save: null,   // loaded from localStorage on boot
+  run:   null,  // null between runs
+
+  // ── encounter live state (set by combat engine while screen === 'encounter')
+  enc:   null,
+
+  // ── narration / typing
   log: [],
-  breedState: null,
-  postBattleEvents: null,
+  typingIdx: -1,
+
+  // ── pending UI gates
   acting: false,
-  pCharge: null,
-  eCharge: null,
-  // Index of the log entry currently typewriting in the narrative box. Set
-  // by the log drainer; -1 when nothing is animating. Drives the typewriter
-  // styling on the latest narrative line.
-  typingLogIdx: -1,
 };
 
-// pushLog accepts a string (legacy plain-text entry) or a structured object
-// of the form { text, damage?, heal?, cls?, anim?, pause? }. Animations on
-// .anim are deferred — they fire when the log drainer reaches the entry, so
-// each event's animation lines up with the line appearing in the UI.
+// pushLog accepts either a string or a structured object. The combat engine
+// drains the log between actions, animating each line in beat. Fields:
+//   text       — required, parsed via parseProse
+//   cls        — extra css class on the line
+//   damage     — number to render as -N in red
+//   heal       — number to render as +N
+//   pause      — ms to pause after typing finishes (default depends on length)
+//   anim       — { kind: 'shake'|'lunge'|'recoil'|'callout', side?, text? }
 export function pushLog(text, opts) {
   let entry;
-  if (text && typeof text === 'object' && !Array.isArray(text)) {
-    entry = { text: text.text || '', cls: '', damage: 0, heal: 0, ...text };
-  } else {
-    const o = (opts && typeof opts === 'object') ? opts : (opts ? { cls: opts } : {});
-    entry = { text: String(text || ''), cls: '', damage: 0, heal: 0, ...o };
-  }
+  if (text && typeof text === 'object' && !Array.isArray(text)) entry = { ...text };
+  else entry = { text: String(text || ''), ...(opts || {}) };
+  entry.text   = String(entry.text || '');
+  entry.cls    = entry.cls || '';
+  entry.damage = entry.damage || 0;
+  entry.heal   = entry.heal   || 0;
   state.log.push(entry);
-  if (state.log.length > 60) state.log.shift();
+  if (state.log.length > 80) state.log.shift();
 }
 
-// Compatibility helper for callers that still wrote `entry.msg` to access the
-// log line text. New code should use entry.text.
-export function logText(entry) { return entry ? (entry.text || entry.msg || '') : ''; }
+export function clearLog() { state.log.length = 0; state.typingIdx = -1; }
 
-export function resetGame() {
-  state.wave = 0;
-  state.party = [];
-  state.reserve = [];
-  state.activeIdx = 0;
-  state.enemy = null;
-  state.enemyParty = [];
-  state.enemyActiveIdx = 0;
-  state.pf = null; state.bf = null; state.ef = null; state.ebf = null;
-  state.pCharge = null; state.eCharge = null;
-  state.log = [];
-  state.breedState = null;
-  state.postBattleEvents = null;
-  state.starterPool = null;
-  state.acting = false;
-  state.typingLogIdx = -1;
-  state.screen = 'start';
-}
-
-// Allocates monotonically increasing creature IDs. Used by makeCreature() and
-// makeChild() — they share one counter so IDs are unique across both.
-let creatureIdCounter = 1;
-export function nextCreatureId() { return creatureIdCounter++; }
+let _idCounter = 1;
+export function nextId() { return _idCounter++; }

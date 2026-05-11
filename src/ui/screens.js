@@ -1,444 +1,29 @@
-// All non-battle screens, rendered as pages of the same document.
-// Each screen begins with a `// page · subject` tag, body prose in
-// lowercase, content (cards, pickers), and an action row of doc-buttons
-// at the bottom.
+// All non-encounter screens. Each is a page in the same testimony document.
 
 import { el, app } from './dom.js';
-import { VERSION } from '../version.js';
-import { TEMPLATES, ABILITIES, PASSIVES, VOICE } from '../data.js';
-import { state, BREED_WAVES, TOTAL_WAVES, resetGame } from '../state.js';
-import { sfx } from '../audio.js';
-import { makeCreature, displayName } from '../creature.js';
-import { generateEnemyParty, partyAvgLevel } from '../encounter.js';
-import { creatureCardEl } from './cards.js';
-import { beginBattle } from '../combat/battle.js';
-import { makeChild, finalizeBreed } from '../breeding.js';
-import { render, advanceWave } from './render.js';
+import { state } from '../state.js';
 import { parseProse } from './textCorrupt.js';
+import { renderGlyph } from './glyphs.js';
+import { sfx } from '../audio.js';
+import { WOUNDS } from '../wounds.js';
+import { TRAITS } from '../traits.js';
+import { PATIENTS } from '../patients.js';
+import { startNewRun, enterCurrentNode, currentNode, applyResolutionAndAdvance, applyEventEffect, advanceRun, endRun } from '../run.js';
+import { EVENTS } from '../events.js';
+import { chooseResolution } from '../combat.js';
+import { VERSION } from '../version.js';
 
-// Global header used between battles (not on battle screen — the
-// engagement strip carries that info there).
-export function renderHeader() {
-  const next = nextBreed();
-  return el('div', { class: 'doc-strip header-strip' }, [
-    docStripPart(`Descent ${pad2(state.wave)} of ${pad2(TOTAL_WAVES)}`),
-    docStripPart(`With me · ${state.party.length}`),
-    docStripPart(`Behind · ${state.reserve.length}`),
-    docStripPart(next ? `Next writing · descent ${next}` : 'No writing remains'),
-  ]);
-}
-
-function nextBreed() {
-  for (const w of [3, 6, 9]) if (w >= state.wave) return w;
-  return null;
-}
-
-// ── start ────────────────────────────────────────────────────────────
-export function renderStart() {
-  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
-  const page = docPage('// Admission · Patient 0413 · day one');
-
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse([
-    'I found the address on a card I do not remember writing. The road ended at the building.',
-    'The nurse opened the door before I knocked. She said they were expecting me. She handed me a file. She said it had been waiting.',
-    'Ten descents. One room at a time. On the third, the sixth, and the ninth, the line ~~asks~~ requires a sacrifice — two pairs, two offerings, two written into one. The rest are filed elsewhere.',
-    '!!The door at the top is locked from this side.!!',
-  ].join('\n\n'));
-  page.appendChild(intro);
-
-  const note = el('div', { class: 'doc-prose dim' });
-  note.innerHTML = parseProse(
-    'Each patient holds something they do not let go of. When two are written into one, the offspring keeps a piece of each. !!Nothing!! comes back unchanged.'
-  );
-  page.appendChild(note);
-
-  page.appendChild(actionRow(
-    docButton('Accept the file', () => {
-      const protag = TEMPLATES.find(t => t.species === 'Lumenpup');
-      if (protag) state.party.push(makeCreature(protag, 1));
-      state.starterPool = TEMPLATES.filter(t => t.starter).map(t => makeCreature(t, 1));
-      state.screen = 'starter_pick';
-      render();
-    })
-  ));
-  app().appendChild(page);
-}
-
-// ── starter pick ─────────────────────────────────────────────────────
-export function renderStarterPick() {
-  const idx = state.party.length;
-  const total = 2;
-  const page = docPage('// Admission · the file is ~~asked~~ required');
-
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse(
-    idx === 0
-      ? 'The nurse opens a file across the desk. She says it is mine to keep. For now.'
-      : 'The nurse opens another file. She does not say whose it was. She says I will be its keeper.'
-  );
-  page.appendChild(intro);
-
-  const grid = el('div', { class: 'doc-card-list' });
-  for (const preview of state.starterPool) {
-    if (state.party.find(c => c.species === preview.species)) continue;
-    grid.appendChild(creatureCardEl(preview, {
-      selectable: true,
-      onclick: () => {
-        sfx('select');
-        state.party.push(preview);
-        if (state.party.length < 2) render();
-        else { state.screen = 'bloodline_ready'; render(); }
-      },
-    }));
-  }
-  page.appendChild(grid);
-  app().appendChild(page);
-}
-
-// ── bloodline ready ──────────────────────────────────────────────────
-export function renderBloodlineReady() {
-  const page = docPage('// Admission · the line is set');
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse(
-    'Two files at the desk. Mine, and the one she gave me. I hold each one long enough to ~~know~~ read it. The corridor is dark beyond the desk.'
-  );
-  page.appendChild(intro);
-
-  const list = el('div', { class: 'doc-card-list' });
-  for (const c of state.party) list.appendChild(creatureCardEl(c));
-  page.appendChild(list);
-
-  page.appendChild(actionRow(
-    docButton('descend', () => {
-      state.wave = 1;
-      state.enemyParty = generateEnemyParty(state.wave, partyAvgLevel(state.party));
-      state.enemyActiveIdx = 0;
-      state.enemy = state.enemyParty[0];
-      state.screen = 'prebattle';
-      render();
-    })
-  ));
-  app().appendChild(page);
-}
-
-// ── prebattle ────────────────────────────────────────────────────────
-export function renderPreBattle() {
-  const isBoss = state.wave === TOTAL_WAVES;
-  const tag = isBoss
-    ? '// Engagement · the tenth · they are at the door'
-    : `// Engagement · descent ${pad2(state.wave)} · they approach`;
-  const page = docPage(tag);
-
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse(
-    isBoss
-      ? 'They are at the door. All of them. I did not ~~choose~~ expect them this soon. !!The page thins where I am.!!'
-      : 'Another room. Another file across the desk. I count them. I write down what I can ~~hold~~ keep.'
-  );
-  page.appendChild(intro);
-
-  page.appendChild(el('div', { class: 'sec-label-doc' }, '─ What I see ─'));
-  const enemyList = el('div', { class: 'doc-card-list' });
-  for (const e of state.enemyParty) enemyList.appendChild(creatureCardEl(e));
-  page.appendChild(enemyList);
-
-  page.appendChild(el('div', { class: 'sec-label-doc' }, '─ Who goes first ─'));
-  const leadList = el('div', { class: 'doc-card-list' });
-  for (let i = 0; i < state.party.length; i++) {
-    const c = state.party[i];
-    leadList.appendChild(creatureCardEl(c, {
-      selectable: true,
-      onclick: () => {
-        sfx('select');
-        state.activeIdx = i;
-        beginBattle();
-      },
-    }));
-  }
-  page.appendChild(leadList);
-  app().appendChild(page);
-}
-
-// ── aftermath ────────────────────────────────────────────────────────
-export function renderAftermath() {
-  const page = docPage(`// Engagement · descent ${pad2(state.wave)} · ended`);
-  const ev = state.postBattleEvents;
-
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse(
-    `The room is empty now. Each of them takes ${ev.xpGained} from what was ~~killed~~ left here.`
-  );
-  page.appendChild(intro);
-
-  page.appendChild(el('div', { class: 'sec-label-doc' }, '─ What they took ─'));
-  for (const rep of ev.xpReports) {
-    const c = rep.creature;
-    if (rep.levelEvents.length) {
-      for (const lev of rep.levelEvents) {
-        const lc = el('div', { class: 'doc-levelup' });
-        lc.appendChild(el('div', { class: 'doc-levelup-line' },
-          `${displayName(c)} — Level up · L${lev.level}`));
-        const dl = el('div', { class: 'doc-levelup-deltas' });
-        for (const [k, v] of Object.entries(lev.deltas)) {
-          dl.appendChild(el('span', { class: 'doc-delta' }, `+${v} ${k}`));
-        }
-        lc.appendChild(dl);
-        page.appendChild(lc);
-      }
-    }
-    page.appendChild(creatureCardEl(c));
-  }
-
-  page.appendChild(el('div', { class: 'sec-label-doc' }, '─ One of them follows ─'));
-  const chooseProse = el('div', { class: 'doc-prose dim' });
-  chooseProse.innerHTML = parseProse('I write one of them into the line behind me. The rest are ~~killed~~ filed elsewhere.');
-  page.appendChild(chooseProse);
-  const captureList = el('div', { class: 'doc-card-list' });
-  for (const candidate of ev.capturedChoices) {
-    captureList.appendChild(creatureCardEl(candidate, {
-      selectable: true,
-      selected: ev.capturedSelected && ev.capturedSelected.id === candidate.id,
-      onclick: () => { ev.capturedSelected = candidate; render(); },
-    }));
-  }
-  page.appendChild(captureList);
-
-  const continueLabel = ev.capturedSelected ? 'Descend' : 'Choose one to keep';
-  const btn = docButton(continueLabel, () => {
-    if (!ev.capturedSelected) return;
-    sfx('capture');
-    state.reserve.push(ev.capturedSelected);
-    if (BREED_WAVES.has(state.wave)) {
-      state.breedState = {
-        stage: 'pick_pair_1',
-        pool: [...state.party, ...state.reserve],
-        picks: [],
-        currentPair: [],
-      };
-      state.screen = 'breed';
-      render();
-    } else {
-      advanceWave();
-    }
-  });
-  if (!ev.capturedSelected) btn.disabled = true;
-  page.appendChild(actionRow(btn));
-  app().appendChild(page);
-}
-
-// ── breed ────────────────────────────────────────────────────────────
-export function renderBreed() {
-  const bs = state.breedState;
-  const page = docPage('// Ritual · the file is ~~asked~~ required');
-
-  if (bs.stage === 'pick_pair_1' || bs.stage === 'pick_pair_2') {
-    const pairIdx = bs.stage === 'pick_pair_1' ? 0 : 1;
-    const used = new Set();
-    for (const pair of bs.picks) for (let i = 0; i < 2; i++) used.add(pair[i].id);
-    const currentPair = bs.currentPair || [];
-
-    const intro = el('div', { class: 'doc-prose' });
-    intro.innerHTML = parseProse(
-      `I pick the ${pairIdx === 0 ? 'first' : 'second'} pair. ~~Two of them~~ Two offerings (${currentPair.length}/2). They will be ~~killed~~ written into one. The unchosen are filed into [[6]].`
-    );
-    page.appendChild(intro);
-
-    const list = el('div', { class: 'doc-card-list' });
-    for (const c of bs.pool) {
-      const pickedNow = currentPair.find(p => p.id === c.id);
-      const pickedEarlier = used.has(c.id);
-      list.appendChild(creatureCardEl(c, {
-        selectable: !pickedEarlier,
-        selected: !!pickedNow,
-        dimmed: pickedEarlier,
-        onclick: pickedEarlier ? null : () => {
-          if (pickedNow) bs.currentPair = currentPair.filter(p => p.id !== c.id);
-          else if (currentPair.length < 2) bs.currentPair = [...currentPair, c];
-          if ((bs.currentPair || []).length === 2) {
-            bs.stage = pairIdx === 0 ? 'config_pair_1' : 'config_pair_2';
-            const [pa, pb] = bs.currentPair;
-            bs.abilityOptions = Array.from(new Set([...pa.abilities, ...pb.abilities]));
-            const pmap = {};
-            for (const k of pa.passives || []) {
-              if (k) pmap[k] = pmap[k] === 'b' ? 'both' : 'a';
-            }
-            for (const k of pb.passives || []) {
-              if (k) pmap[k] = pmap[k] === 'a' ? 'both' : (pmap[k] === 'both' ? 'both' : 'b');
-            }
-            bs.passiveOptions = Object.entries(pmap).map(([key, owner]) => ({ key, owner }));
-            bs.chosenAbilities = [];
-            bs.chosenPassives = [];
-          }
-          render();
-        },
-      }));
-    }
-    page.appendChild(list);
-    app().appendChild(page);
-    return;
-  }
-
-  if (bs.stage === 'config_pair_1' || bs.stage === 'config_pair_2') {
-    const pairIdx = bs.stage === 'config_pair_1' ? 0 : 1;
-    const [pa, pb] = bs.currentPair;
-
-    const intro = el('div', { class: 'doc-prose' });
-    intro.innerHTML = parseProse(
-      `I write the offspring for pair ${pairIdx + 1}. Four ~~things it can do~~ actions. Two qualities. The first quality decides what shape the new one takes. It will not be either of them.`
-    );
-    page.appendChild(intro);
-
-    page.appendChild(el('div', { class: 'doc-action-row left' }, [
-      docButton('〈 ~~Undo~~ Pick different offerings', () => {
-        bs.stage = pairIdx === 0 ? 'pick_pair_1' : 'pick_pair_2';
-        bs.currentPair = [];
-        bs.chosenAbilities = [];
-        bs.chosenPassives = [];
-        render();
-      }, 'small'),
-    ]));
-
-    const parents = el('div', { class: 'doc-card-list two-up' });
-    parents.appendChild(creatureCardEl(pa, { showGrowths: true }));
-    parents.appendChild(creatureCardEl(pb, { showGrowths: true }));
-    page.appendChild(parents);
-
-    page.appendChild(el('div', { class: 'sec-label-doc' },
-      `─ Actions · ${bs.chosenAbilities.length} of 4 ─`));
-    const aRow = el('div', { class: 'pick-row' });
-    for (const k of bs.abilityOptions) {
-      const a = ABILITIES[k];
-      const picked = bs.chosenAbilities.includes(k);
-      aRow.appendChild(el('button', {
-        class: 'pick-btn' + (picked ? ' picked' : ''),
-        onclick: () => {
-          if (picked) bs.chosenAbilities = bs.chosenAbilities.filter(x => x !== k);
-          else if (bs.chosenAbilities.length < 4) bs.chosenAbilities.push(k);
-          render();
-        },
-      }, [
-        el('span', { class: 'pick-marker' }, picked ? '▸ ' : '  '),
-        el('span', { class: 'pick-name' }, a ? a.name : k),
-      ]));
-    }
-    page.appendChild(aRow);
-
-    page.appendChild(el('div', { class: 'sec-label-doc' },
-      `─ Qualities · ${bs.chosenPassives.length} of 2 ─`));
-    const qProse = el('div', { class: 'doc-prose dim' });
-    qProse.innerHTML = parseProse('The first pick decides the ~~body~~ shape. The second only marks the !!soul!!.');
-    page.appendChild(qProse);
-    const pRow = el('div', { class: 'pick-row' });
-    for (const opt of bs.passiveOptions) {
-      const k = opt.key;
-      const picked = bs.chosenPassives.includes(k);
-      const isShape = picked && bs.chosenPassives.indexOf(k) === 0;
-      const p = PASSIVES[k];
-      const ownerLabel = opt.owner === 'a' ? pa.species
-                       : opt.owner === 'b' ? pb.species
-                       : `${pa.species}/${pb.species}`;
-      const btn = el('button', {
-        class: 'pick-btn' + (picked ? ' picked' : ''),
-        title: (p ? p.desc : '') + ` (from ${ownerLabel})`,
-        onclick: () => {
-          if (picked) bs.chosenPassives = bs.chosenPassives.filter(x => x !== k);
-          else if (bs.chosenPassives.length < 2) bs.chosenPassives.push(k);
-          render();
-        },
-      }, [
-        el('span', { class: 'pick-marker' }, picked ? '▸ ' : '  '),
-        el('span', { class: 'pick-name' }, p ? p.name : k),
-        isShape ? el('span', { class: 'pick-tag' }, ' · Shape') : null,
-      ].filter(Boolean));
-      pRow.appendChild(btn);
-    }
-    page.appendChild(pRow);
-
-    if (bs.chosenAbilities.length === 4 && bs.chosenPassives.length === 2) {
-      const firstPick = bs.chosenPassives[0];
-      const firstOpt = bs.passiveOptions.find(o => o.key === firstPick);
-      const speciesFromB = firstOpt && firstOpt.owner === 'b';
-      const child = makeChild(pa, pb, bs.chosenAbilities, bs.chosenPassives, speciesFromB);
-      page.appendChild(el('div', { class: 'sec-label-doc' }, '─ Offspring · preview ─'));
-      page.appendChild(creatureCardEl(child, { showGrowths: true }));
-      page.appendChild(actionRow(
-        docButton('Confirm the writing', () => {
-          sfx('victory');
-          bs.picks.push([pa, pb, child]);
-          bs.currentPair = [];
-          if (pairIdx === 0) { bs.stage = 'pick_pair_2'; render(); }
-          else { finalizeBreed(); }
-        })
-      ));
-    }
-    app().appendChild(page);
-    return;
-  }
-
-  app().appendChild(page);
-}
-
-// ── victory ──────────────────────────────────────────────────────────
-export function renderVictory() {
-  const page = docPage('// Admission · the door · ~~closed~~ open');
-  const all = [...state.party, ...state.reserve];
-  const maxLvl = all.reduce((a, c) => Math.max(a, c.level), 0);
-
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse(
-    `I wrote my way to the tenth. There are ${all.length} of them with me. The deepest is at L${maxLvl}. The door at the top is open.`
-  );
-  page.appendChild(intro);
-
-  const note = el('div', { class: 'doc-prose dim' });
-  note.innerHTML = parseProse('!!Someone is signing me out.!! The hand is not the one I came in with. ~~The page ends~~ The page does not.');
-  page.appendChild(note);
-
-  page.appendChild(el('div', { class: 'sec-label-doc' }, '─ What came back with me ─'));
-  const list = el('div', { class: 'doc-card-list' });
-  for (const c of state.party) list.appendChild(creatureCardEl(c));
-  page.appendChild(list);
-
-  page.appendChild(actionRow(docButton('Begin another admission', () => { resetGame(); render(); })));
-  app().appendChild(page);
-}
-
-// ── gameover ─────────────────────────────────────────────────────────
-export function renderGameover() {
-  const page = docPage('// Admission · ~~ends~~ stops here');
-
-  const intro = el('div', { class: 'doc-prose' });
-  intro.innerHTML = parseProse(
-    `I fell at descent ${state.wave}. The line is ~~broken~~ unfinished. The room is ~~empty~~ quiet now.`
-  );
-  page.appendChild(intro);
-
-  const note = el('div', { class: 'doc-prose dim' });
-  note.innerHTML = parseProse('Another file has been opened. !!0413 was already taken.!! Someone else will take what I could not.');
-  page.appendChild(note);
-
-  page.appendChild(actionRow(docButton('Begin another admission', () => { resetGame(); render(); })));
-  app().appendChild(page);
-}
-
-// ── helpers ──────────────────────────────────────────────────────────
+// ── helpers ─────────────────────────────────────────────────────────────
 function docPage(tag) {
   const wrap = el('div', { class: 'doc-page' });
   wrap.appendChild(el('div', { class: 'doc-page-tag' }, tag));
   return wrap;
 }
-
-function docStripPart(text) {
-  return el('span', { class: 'doc-strip-cell' }, text);
-}
-
 function actionRow(...children) {
   const row = el('div', { class: 'doc-action-row' });
   for (const c of children) if (c) row.appendChild(c);
   return row;
 }
-
 function docButton(label, onclick, variant) {
   const cls = 'doc-button' + (variant ? ' ' + variant : '');
   return el('button', { class: cls, onclick }, [
@@ -446,5 +31,405 @@ function docButton(label, onclick, variant) {
     el('span', {}, label),
   ]);
 }
+function prose(text, dim) {
+  const e = el('div', { class: dim ? 'doc-prose dim' : 'doc-prose' });
+  e.innerHTML = parseProse(text);
+  return e;
+}
+function sectionLabel(text) {
+  return el('div', { class: 'sec-label-doc' }, `─ ${text} ─`);
+}
 
-function pad2(n) { return String(Math.max(0, n | 0)).padStart(2, '0'); }
+// ── title ───────────────────────────────────────────────────────────────
+export function renderTitle() {
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const page = docPage('// admission · the door · open');
+  page.appendChild(prose([
+    'I do not remember the address. I have the card. I have been holding it.',
+    'a building. a desk. a nurse who was expecting me.',
+    'she has a file. she says it is mine. !!she has been waiting.!!',
+  ].join('\n\n')));
+  page.appendChild(prose('there is a corridor beyond the desk. it descends.', true));
+
+  const save = state.save || { runs: 0, finishes: 0, archive: [] };
+  const meta = el('div', { class: 'doc-archive-summary' });
+  if (save.runs > 0) {
+    meta.appendChild(sectionLabel('what the desk remembers'));
+    meta.appendChild(el('div', { class: 'doc-prose dim' },
+      `${save.runs} admission${save.runs > 1 ? 's' : ''}. ${save.finishes} discharge${save.finishes === 1 ? '' : 's'}.`));
+    if (save.archive.length) {
+      const list = el('div', { class: 'doc-archive-list' });
+      for (const line of save.archive.slice(0, 5)) {
+        list.appendChild(el('div', { class: 'doc-archive-line' }, line));
+      }
+      meta.appendChild(list);
+    }
+  }
+  page.appendChild(meta);
+
+  page.appendChild(actionRow(
+    docButton('admit yourself', () => {
+      sfx('select');
+      state.screen = 'admission';
+      // reset any old run
+      state.run = null; state.enc = null;
+      // we'll let the player pick a wound
+      state.admission = { wound: null };
+      import('./render.js').then(m => m.render());
+    }),
+  ));
+  app().appendChild(page);
+}
+
+// ── admission (wound select) ────────────────────────────────────────────
+export function renderAdmission() {
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const page = docPage('// admission · patient 0413 · day one');
+  page.appendChild(prose([
+    'the nurse opens the desk. she opens a file. she pushes it across to me.',
+    'the first line is for me to write. she says: !!just say what is wrong.!!',
+    'I read the choices already there. I do not remember which I came in for.',
+  ].join('\n\n')));
+
+  const available = (state.save?.unlocked.wounds || []).filter(id => WOUNDS[id]);
+  page.appendChild(sectionLabel('what is wrong'));
+
+  const list = el('div', { class: 'doc-card-list' });
+  for (const id of available) {
+    const w = WOUNDS[id];
+    list.appendChild(woundCardEl(w, state.admission?.wound === id));
+  }
+  page.appendChild(list);
+
+  const ready = !!state.admission?.wound;
+  const btn = docButton(ready ? 'descend' : 'choose first', () => {
+    if (!ready) return;
+    sfx('select');
+    startNewRun(state.admission.wound);
+    import('./render.js').then(m => m.render());
+  });
+  if (!ready) btn.disabled = true;
+
+  page.appendChild(actionRow(
+    docButton('〈 back', () => { state.screen = 'title'; import('./render.js').then(m => m.render()); }, 'small'),
+    btn,
+  ));
+  app().appendChild(page);
+}
+
+function woundCardEl(w, selected) {
+  const card = el('button', { class: 'doc-card wound-card' + (selected ? ' selected' : '') });
+  card.addEventListener('click', () => {
+    state.admission = state.admission || {};
+    state.admission.wound = w.id;
+    import('./render.js').then(m => m.render());
+  });
+  card.appendChild(el('div', { class: 'doc-card-marker' }, selected ? '▸' : ' '));
+  const body = el('div', { class: 'doc-card-body' });
+  body.appendChild(el('div', { class: 'doc-card-head' }, [
+    el('span', { class: 'doc-card-name' }, w.name),
+    el('span', { class: 'doc-card-meta' }, w.one_liner ? `· ${stripMarkup(w.one_liner)}` : ''),
+  ]));
+  const file = el('div', { class: 'wound-file' });
+  for (const line of w.file) {
+    file.appendChild(el('div', { class: 'wound-file-line', html: parseProse(line) }));
+  }
+  body.appendChild(file);
+  const sig = TRAITS[w.signature];
+  if (sig) {
+    body.appendChild(el('div', { class: 'wound-signature' }, [
+      el('span', { class: 'wound-sig-label' }, 'signature · '),
+      el('span', { class: 'wound-sig-name' }, sig.name),
+      el('span', { class: 'wound-sig-desc' }, ` · ${sig.desc}`),
+    ]));
+  }
+  card.appendChild(body);
+  return card;
+}
+
+function stripMarkup(s) {
+  return String(s || '')
+    .replace(/~~/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/!!/g, '')
+    .replace(/\[\[\d+\]\]/g, '———');
+}
+
+// ── corridor (map) ──────────────────────────────────────────────────────
+export function renderCorridor() {
+  const run = state.run;
+  if (!run) return;
+  const n = currentNode();
+  if (!n) return;
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const page = docPage('// the corridor · ' + corridorTag(n));
+
+  // a thin map showing where you are
+  page.appendChild(corridorMapEl(run));
+
+  // a small prose line per stop
+  page.appendChild(prose(corridorIntro(run, n)));
+
+  // file state
+  page.appendChild(playerStatusEl(run.player));
+
+  const isPatient = n.kind === 'patient' || n.kind === 'final';
+  const label = isPatient ? (n.kind === 'final' ? 'enter the final ward' : 'enter the room')
+                          : 'continue down the hall';
+  page.appendChild(actionRow(
+    docButton(label, () => {
+      sfx('select');
+      enterCurrentNode();
+      import('./render.js').then(m => m.render());
+    })
+  ));
+  app().appendChild(page);
+}
+
+function corridorTag(n) {
+  if (n.kind === 'final') return 'the final ward';
+  if (n.kind === 'patient') return `wing ${n.wing} · room`;
+  return `wing ${n.wing} · hall`;
+}
+
+function corridorIntro(run, n) {
+  if (n.kind === 'final') {
+    return 'the corridor ends at a door I have not seen before. ~~it is locked from~~ it is unlocked. !!from this side.!!';
+  }
+  if (n.kind === 'patient') {
+    const def = PATIENTS[n.id];
+    return `a room. the door is ajar. the file on the desk says ${def ? def.name : '[]'}. ~~the room is~~ the room is.`;
+  }
+  return 'I keep walking. ~~the hall does not~~ the hall does end.';
+}
+
+function corridorMapEl(run) {
+  const wrap = el('div', { class: 'corridor-map' });
+  for (let i = 0; i < run.nodes.length; i++) {
+    const node = run.nodes[i];
+    const isCur = i === run.idx;
+    const passed = i < run.idx;
+    let symbol;
+    if (node.kind === 'final')   symbol = isCur ? '◉' : passed ? '✓' : '◇';
+    else if (node.kind === 'patient') symbol = isCur ? '◉' : passed ? '✓' : '○';
+    else                          symbol = isCur ? '◉' : passed ? '·' : '·';
+    const cls = 'corridor-node' + (isCur ? ' current' : '') + (passed ? ' passed' : '') + ' kind-' + node.kind;
+    wrap.appendChild(el('span', { class: cls }, symbol));
+    if (i < run.nodes.length - 1) wrap.appendChild(el('span', { class: 'corridor-rule' }, '─'));
+  }
+  return wrap;
+}
+
+function playerStatusEl(player) {
+  const wrap = el('div', { class: 'corridor-status' });
+  const w = WOUNDS[player.wound];
+  wrap.appendChild(el('div', { class: 'corridor-status-head' }, [
+    el('span', { class: 'corridor-status-name' }, 'patient 0413'),
+    el('span', { class: 'corridor-status-sep' }, ' · '),
+    el('span', { class: 'corridor-status-meta' }, w ? w.name : 'unmarked'),
+  ]));
+  wrap.appendChild(el('div', { class: 'corridor-status-body' }, [
+    el('span', { class: 'corridor-status-cell' }, `hp ${player.hp}/${player.maxHp}`),
+    el('span', { class: 'corridor-status-cell' }, `composure ${player.composure}`),
+    el('span', { class: 'corridor-status-cell' }, `traits ${player.traits.length}`),
+  ]));
+  // show trait names
+  if (player.traits.length) {
+    const t = el('div', { class: 'corridor-status-traits' });
+    for (const tid of player.traits) {
+      const tt = TRAITS[tid];
+      if (!tt) continue;
+      t.appendChild(el('span', { class: 'corridor-trait', title: tt.desc }, tt.name));
+    }
+    wrap.appendChild(t);
+  }
+  return wrap;
+}
+
+// ── event (corridor vignette) ───────────────────────────────────────────
+export function renderEvent() {
+  const n = currentNode();
+  if (!n) return;
+  const eventDef = EVENTS[n.id];
+  if (!eventDef) { advanceRun(); return; }
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const page = docPage(eventDef.tag);
+
+  // prose
+  const proseWrap = el('div', { class: 'event-prose' });
+  for (const line of eventDef.prose) {
+    proseWrap.appendChild(el('div', { class: 'doc-prose', html: parseProse(line) }));
+  }
+  page.appendChild(proseWrap);
+
+  // choices
+  page.appendChild(sectionLabel('what I do'));
+  const choices = el('div', { class: 'event-choices' });
+  for (const c of eventDef.choices) {
+    const btn = el('button', { class: 'event-choice' });
+    btn.appendChild(el('span', { class: 'event-choice-marker' }, '▸'));
+    btn.appendChild(el('span', { class: 'event-choice-label' }, c.label));
+    btn.addEventListener('click', () => {
+      sfx('select');
+      state.eventOutcome = { id: eventDef.id, choice: c.key };
+      // show the choice prose, then a continue button
+      state.screen = 'event_after';
+      import('./render.js').then(m => m.render());
+    });
+    choices.appendChild(btn);
+  }
+  page.appendChild(choices);
+  app().appendChild(page);
+}
+
+export function renderEventAfter() {
+  const n = currentNode();
+  const eventDef = EVENTS[n.id];
+  const out = state.eventOutcome;
+  if (!eventDef || !out) { advanceRun(); return; }
+  const choice = eventDef.choices.find(c => c.key === out.choice);
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const page = docPage(eventDef.tag);
+  // show what I chose
+  page.appendChild(el('div', { class: 'doc-prose', html: parseProse(choice.prose) }));
+  page.appendChild(actionRow(docButton('continue', () => {
+    sfx('select');
+    applyEventEffect(eventDef, out.choice);
+    state.eventOutcome = null;
+    import('./render.js').then(m => m.render());
+  })));
+  app().appendChild(page);
+}
+
+// ── resolution (after winning an encounter) ─────────────────────────────
+export function renderResolution() {
+  const enc = state.enc;
+  if (!enc) return;
+  const patient = enc.patient;
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const page = docPage(`// resolution · file ${patient.id} · the room is quiet`);
+
+  // dossier head
+  const head = el('div', { class: 'resolution-head' });
+  const g = el('div', { class: 'enc-glyph' });
+  g.innerHTML = renderGlyph(patient.glyph);
+  head.appendChild(g);
+  const headText = el('div', { class: 'resolution-head-text' });
+  headText.appendChild(el('div', { class: 'enc-name', html: parseProse(patient.name) }));
+  headText.appendChild(el('div', { class: 'enc-sub', html: parseProse(patient.subtitle || '') }));
+  head.appendChild(headText);
+  page.appendChild(head);
+
+  if (!enc.resolution) {
+    page.appendChild(prose('the room is quiet now. she is down. she is not gone.', false));
+    page.appendChild(sectionLabel('how I close the file'));
+    const choices = el('div', { class: 'event-choices' });
+    for (const key of ['soothe', 'hold', 'listen']) {
+      const r = patient.def.resolutions[key];
+      if (!r) continue;
+      const trait = TRAITS[r.trait];
+      const btn = el('button', { class: 'event-choice resolution-choice' });
+      btn.appendChild(el('span', { class: 'event-choice-marker' }, '▸'));
+      btn.appendChild(el('span', { class: 'event-choice-label' }, r.label));
+      if (trait) {
+        btn.appendChild(el('span', { class: 'resolution-trait-hint' }, [
+          el('span', { class: 'resolution-trait-name' }, trait.name),
+          el('span', { class: 'resolution-trait-desc' }, ` · ${trait.desc}`),
+        ]));
+      }
+      btn.addEventListener('click', () => { sfx('select'); chooseResolution(key); });
+      choices.appendChild(btn);
+    }
+    page.appendChild(choices);
+  } else {
+    // show the resolution prose, then continue
+    const r = enc.resolution.res;
+    page.appendChild(el('div', { class: 'doc-prose resolution-prose', html: parseProse(r.prose) }));
+    const trait = TRAITS[r.trait];
+    if (trait) {
+      const taken = el('div', { class: 'resolution-trait-taken' });
+      taken.appendChild(el('div', { class: 'enc-section-label' }, '─ what I keep ─'));
+      taken.appendChild(el('div', { class: 'resolution-trait-name' }, trait.name));
+      taken.appendChild(el('div', { class: 'resolution-trait-voice', html: parseProse(trait.voice || '') }));
+      taken.appendChild(el('div', { class: 'resolution-trait-desc' }, trait.desc));
+      page.appendChild(taken);
+    }
+    const isFinal = patient.def.role === 'final';
+    page.appendChild(actionRow(docButton(isFinal ? 'leave' : 'walk on', () => {
+      sfx('select');
+      // applyResolutionAndAdvance handles end-of-run via advanceRun → endRun.
+      applyResolutionAndAdvance();
+      import('./render.js').then(m => m.render());
+    })));
+  }
+  app().appendChild(page);
+}
+
+// ── archive (run end) ───────────────────────────────────────────────────
+export function renderArchive() {
+  const summary = state.lastRunSummary;
+  app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
+  const tag = summary?.payload.outcome === 'finished' ? 'discharged' :
+              summary?.payload.outcome === 'lost'     ? 'expired'     : 'closed';
+  const page = docPage(`// archive · patient 0413 · ${tag}`);
+
+  if (summary?.payload.outcome === 'finished') {
+    page.appendChild(prose([
+      'the door is open. the corridor behind me is closed.',
+      'I do not look back. ~~someone is signing me out~~. someone is signing me out.',
+      '!!the hand is not the one I came in with.!!',
+    ].join('\n\n')));
+  } else {
+    page.appendChild(prose([
+      'the page ~~ends~~ stops here.',
+      'another file has been opened. !!0413 was already taken.!!',
+    ].join('\n\n')));
+  }
+
+  // run summary
+  if (summary) {
+    const w = WOUNDS[summary.wound];
+    page.appendChild(sectionLabel('what was kept'));
+    page.appendChild(el('div', { class: 'doc-prose dim' }, `admitted · ${w ? w.name : summary.wound}`));
+    if (summary.resolutions.length) {
+      const list = el('div', { class: 'archive-resolutions' });
+      for (const r of summary.resolutions) {
+        const t = TRAITS[r.trait];
+        const p = PATIENTS[r.patient];
+        list.appendChild(el('div', { class: 'archive-res-line' }, [
+          el('span', { class: 'archive-res-patient' }, p ? p.name : `[${r.patient}]`),
+          el('span', { class: 'archive-res-sep' }, ' · '),
+          el('span', { class: 'archive-res-key' }, r.key),
+          el('span', { class: 'archive-res-sep' }, ' · '),
+          el('span', { class: 'archive-res-trait' }, t ? t.name : (r.trait || '—')),
+        ]));
+      }
+      page.appendChild(list);
+    }
+  }
+
+  // unlock notifications
+  const save = state.save;
+  if (save) {
+    page.appendChild(sectionLabel('the desk remembers'));
+    page.appendChild(el('div', { class: 'doc-prose dim' },
+      `${save.runs} admission${save.runs > 1 ? 's' : ''} on file. ${save.finishes} discharged.`));
+    const next = nextUnlockHint(save);
+    if (next) page.appendChild(el('div', { class: 'doc-prose dim', html: parseProse(next) }));
+  }
+
+  page.appendChild(actionRow(docButton('begin another admission', () => {
+    sfx('select');
+    state.screen = 'title';
+    import('./render.js').then(m => m.render());
+  })));
+  app().appendChild(page);
+}
+
+function nextUnlockHint(save) {
+  if (save.runs < 1) return 'one more file may open at the door.';
+  if (save.runs < 2) return 'another patient is still on file.';
+  if (save.runs < 3) return 'the desk still has pages I have not read.';
+  if (save.runs < 5) return 'the desk has the rest.';
+  return null;
+}

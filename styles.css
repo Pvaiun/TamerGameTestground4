@@ -1034,3 +1034,504 @@
     .field-notes-body { gap: var(--space-2); }
     .narr-line.primary { font-size: 13px; }
   }
+
+  /* ═══════════════════════════════════════════════════════════════════
+     BLOODLINES v0.1 — encounter, corridor, event, resolution screens
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* common ─────────────────────────────────────────────────────────── */
+  .enc-section-label {
+    font-size: var(--fs-label-2);
+    color: var(--ink-60);
+    letter-spacing: var(--ls-label);
+    text-align: center;
+    margin: var(--space-3) 0 var(--space-2);
+  }
+
+  /* ── encounter screen ───────────────────────────────────────────── */
+  .enc-screen {
+    background: var(--doc-bg);
+    color: var(--ink-100);
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-mono);
+    letter-spacing: var(--ls-tight);
+    font-size: var(--fs-body);
+    line-height: 1.5;
+  }
+
+  .enc-strip {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+    color: var(--ink-60);
+    padding-bottom: var(--space-2);
+    margin-bottom: var(--space-3);
+    border-bottom: 1px solid var(--rule-faint);
+    flex-wrap: wrap; gap: var(--space-2);
+  }
+  .enc-strip .enc-sep { color: var(--ink-40); }
+  .enc-strip-right { color: var(--ink-100); }
+
+  .enc-grid {
+    display: grid; grid-template-columns: 1fr 1px 1fr;
+    gap: 0; margin-bottom: var(--space-3);
+  }
+  .enc-divider { background: var(--rule-faint); }
+  .enc-col {
+    padding: 0 var(--space-3);
+    display: flex; flex-direction: column; gap: var(--space-2);
+    min-width: 0;
+  }
+  .enc-col-patient { padding-left: 0; padding-right: var(--space-3); }
+  .enc-col-player  { padding-left: var(--space-3); padding-right: 0; }
+
+  .enc-head {
+    display: flex; gap: var(--space-3); align-items: flex-start;
+    margin-bottom: var(--space-2);
+  }
+  .enc-glyph {
+    width: 64px; height: 64px;
+    color: var(--ink-100);
+    flex-shrink: 0;
+  }
+  .enc-glyph svg { width: 100%; height: 100%; display: block; }
+  .enc-head-text { flex: 1; min-width: 0; }
+  .enc-name {
+    font-size: 16px; color: var(--ink-100);
+    letter-spacing: 0.5px;
+    line-height: 1.15;
+    word-break: break-word;
+  }
+  .enc-sub {
+    font-size: var(--fs-body-tight);
+    color: var(--ink-80);
+    margin-top: 2px;
+    line-height: 1.4;
+  }
+
+  .enc-file {
+    color: var(--ink-100);
+    font-size: var(--fs-body-tight);
+    line-height: 1.5;
+    margin: 0 0 var(--space-2) 0;
+    padding-bottom: var(--space-2);
+    border-bottom: 1px dotted var(--rule-faint);
+  }
+  .enc-file-line { padding: 1px 0; }
+
+  .enc-stat-row, .enc-cond-row, .enc-status-row, .enc-trait-row, .enc-sig-row {
+    display: flex; align-items: baseline; gap: var(--space-2);
+    font-size: var(--fs-body-tight);
+    padding: 1px 0;
+  }
+  .enc-stat-label {
+    width: 80px;
+    flex-shrink: 0;
+    color: var(--ink-60);
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+  }
+  .enc-bar {
+    flex: 1; height: 6px;
+    background: var(--ink-20);
+    position: relative;
+  }
+  .enc-bar-fill {
+    display: block; height: 100%;
+    background: var(--ink-100);
+    transition: width var(--dur-slow) var(--ease-out);
+  }
+  .enc-bar-fill.low { background: var(--doc-blood); }
+  .enc-stat-num {
+    color: var(--ink-100);
+    min-width: 56px;
+    text-align: right;
+    flex-shrink: 0;
+    font-size: var(--fs-body-tight);
+  }
+
+  .enc-pips { display: inline-flex; gap: 2px; flex: 1; }
+  .enc-pip { color: var(--ink-40); font-size: 14px; line-height: 1; }
+  .enc-pip.lit { color: var(--doc-gold); }
+
+  .enc-cond, .enc-status, .enc-trait, .enc-sig-name {
+    font-size: var(--fs-body-tight);
+    color: var(--ink-100);
+  }
+  .enc-cond { letter-spacing: 0.5px; }
+  .enc-cond-list, .enc-status-list, .enc-trait-list { flex: 1; }
+  .enc-cond-empty, .enc-status-empty {
+    color: var(--ink-40); font-style: italic;
+  }
+  .enc-cond-sep { color: var(--ink-40); margin: 0 4px; }
+  .enc-status-num { color: var(--ink-60); font-size: var(--fs-label-2); margin-left: 2px; }
+  .enc-status-stacked .enc-status-num { color: var(--doc-blood); }
+  .enc-trait {
+    border-bottom: 1px dotted var(--rule-faint);
+    cursor: help;
+  }
+  .enc-sig-name {
+    flex: 1;
+    border-bottom: 1px dotted var(--rule-faint);
+    cursor: help;
+  }
+
+  /* pose queue ─────────────────────────────────────────────────────── */
+  .enc-queue {
+    padding: var(--space-2) 0;
+    margin: var(--space-2) 0;
+    border-top: 1px dotted var(--rule-faint);
+    border-bottom: 1px dotted var(--rule-faint);
+  }
+  .enc-queue-list {
+    display: flex; flex-direction: column; gap: var(--space-1);
+  }
+  .enc-queue-item {
+    display: grid;
+    grid-template-columns: 12px 48px 80px 1fr;
+    gap: var(--space-2);
+    align-items: baseline;
+    font-size: var(--fs-body-tight);
+    padding: 2px 0;
+  }
+  .enc-queue-item.now {
+    color: var(--ink-100);
+    border-left: 2px solid var(--doc-blood);
+    padding-left: var(--space-2);
+  }
+  .enc-queue-marker { color: var(--ink-60); font-size: var(--fs-body); }
+  .enc-queue-item.now .enc-queue-marker { color: var(--doc-blood); }
+  .enc-queue-when {
+    color: var(--ink-60);
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+  }
+  .enc-queue-name {
+    color: var(--ink-100);
+    font-size: var(--fs-body-tight);
+    letter-spacing: 0.5px;
+    font-weight: 500;
+  }
+  .enc-queue-tell { color: var(--ink-80); font-size: var(--fs-body-tight); }
+  .enc-queue-tell.dim, .enc-queue-name.dim { color: var(--ink-40); }
+  .enc-queue-item:not(.now) .enc-queue-tell { color: var(--ink-60); }
+  .enc-queue-item:not(.now) .enc-queue-name { color: var(--ink-80); }
+
+  /* bottom: narrative + actions ───────────────────────────────────── */
+  .enc-bottom {
+    margin-top: var(--space-3);
+  }
+  .enc-narr {
+    padding-bottom: var(--space-2);
+    min-height: 60px;
+  }
+  .enc-narr-line {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 14px;
+    color: var(--ink-100);
+    line-height: 1.55;
+    padding: var(--space-2) var(--space-3);
+    background: rgba(224, 224, 226, 0.02);
+    border-left: 2px solid var(--rule-faint);
+  }
+  .enc-narr-line.intro { color: var(--ink-100); border-left-color: var(--doc-gold); }
+  .enc-narr-line.phase { color: var(--doc-gold); border-left-color: var(--doc-gold); font-size: var(--fs-body-tight); letter-spacing: var(--ls-label); }
+  .enc-narr-line.pose  { color: var(--ink-80); border-left-color: var(--doc-blood); }
+  .enc-narr-line.flavor { color: var(--ink-80); font-style: italic; border-left-color: var(--ink-40); }
+  .enc-narr-line.sig    { color: var(--doc-gold); border-left-color: var(--doc-gold); }
+  .enc-narr-line.tick   { color: var(--ink-60); }
+  .enc-narr-line.fatal  { color: var(--doc-blood); border-left-color: var(--doc-blood); }
+  .enc-narr-line.mend   { color: var(--ink-100); border-left-color: var(--ink-100); }
+  .enc-narr-text { flex: 1; min-width: 0; }
+  .enc-narr-dmg  { color: var(--doc-blood); flex-shrink: 0; padding-left: var(--space-3); font-size: 16px; }
+  .enc-narr-heal { color: var(--ink-100); flex-shrink: 0; padding-left: var(--space-3); font-size: 14px; }
+
+  .enc-actions {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--rule-faint);
+  }
+  .enc-actions-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: var(--space-1) var(--space-3);
+  }
+  .enc-act {
+    display: grid;
+    grid-template-columns: 14px 80px 1fr;
+    grid-template-rows: auto auto;
+    align-items: baseline;
+    gap: 0 var(--space-2);
+    background: transparent;
+    border: 0;
+    color: var(--ink-100);
+    font-family: var(--font-mono);
+    font-size: var(--fs-body);
+    letter-spacing: 0;
+    text-align: left;
+    padding: var(--space-2) var(--space-2);
+    border-bottom: 1px dotted var(--rule-faint);
+    cursor: pointer;
+    transition: background var(--dur-quick) var(--ease-out);
+  }
+  .enc-act:hover:not(:disabled) {
+    background: rgba(224, 224, 226, 0.05);
+  }
+  .enc-act:disabled {
+    color: var(--ink-40);
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .enc-act.sig { border-left: 2px solid var(--doc-gold); padding-left: var(--space-2); }
+  .enc-act-marker { color: var(--ink-60); }
+  .enc-act:hover:not(:disabled) .enc-act-marker { color: var(--doc-blood); }
+  .enc-act-label {
+    color: var(--ink-100);
+    font-size: var(--fs-body);
+    letter-spacing: 1px;
+    font-weight: 500;
+  }
+  .enc-act-tag {
+    grid-column: 3;
+    grid-row: 1;
+    color: var(--ink-60);
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+    text-align: right;
+  }
+  .enc-act-desc {
+    grid-column: 2 / 4;
+    grid-row: 2;
+    color: var(--ink-80);
+    font-size: var(--fs-body-tight);
+    margin-top: 2px;
+    line-height: 1.4;
+    font-style: italic;
+  }
+
+  .enc-loss {
+    margin-top: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--doc-blood);
+  }
+  .enc-loss-prose {
+    color: var(--ink-100);
+    margin-bottom: var(--space-3);
+    line-height: 1.6;
+  }
+
+  /* shake/lunge/recoil ─────────────────────────────────────────────── */
+  .enc-col-patient.shake-pulse,
+  .enc-col-player.shake-pulse { animation: dossier-shake var(--dur-slow) var(--ease-out); }
+  .enc-col-patient.lunge-anim { animation: dossier-lunge-enemy var(--dur-normal) var(--ease-out); }
+  .enc-col-player.lunge-anim  { animation: dossier-lunge var(--dur-normal) var(--ease-out); }
+  .enc-col-patient.recoil-anim { animation: dossier-recoil-enemy var(--dur-normal) var(--ease-out); }
+  .enc-col-player.recoil-anim  { animation: dossier-recoil var(--dur-normal) var(--ease-out); }
+
+  /* ── corridor ──────────────────────────────────────────────────── */
+  .corridor-map {
+    display: flex; flex-wrap: wrap; align-items: center;
+    gap: 6px;
+    padding: var(--space-2) 0;
+    margin-bottom: var(--space-3);
+    border-top: 1px dotted var(--rule-faint);
+    border-bottom: 1px dotted var(--rule-faint);
+    font-size: 14px;
+    justify-content: center;
+  }
+  .corridor-node { color: var(--ink-40); transition: color var(--dur-quick); }
+  .corridor-node.passed { color: var(--ink-60); }
+  .corridor-node.current { color: var(--doc-gold); font-size: 18px; }
+  .corridor-node.kind-final { color: var(--doc-blood); }
+  .corridor-node.kind-final.passed { color: var(--ink-60); }
+  .corridor-node.kind-final.current { color: var(--doc-gold); }
+  .corridor-rule { color: var(--ink-40); }
+
+  .corridor-status {
+    margin: var(--space-3) 0;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--rule-faint);
+  }
+  .corridor-status-head {
+    font-size: var(--fs-body-tight);
+    color: var(--ink-100);
+    margin-bottom: var(--space-1);
+  }
+  .corridor-status-sep { color: var(--ink-40); }
+  .corridor-status-meta { color: var(--ink-80); }
+  .corridor-status-body {
+    display: flex; gap: var(--space-3);
+    color: var(--ink-80);
+    font-size: var(--fs-body-tight);
+  }
+  .corridor-status-cell { color: var(--ink-100); }
+  .corridor-status-traits {
+    display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-2);
+    margin-top: var(--space-2);
+    font-size: var(--fs-body-tight);
+  }
+  .corridor-trait {
+    color: var(--ink-100);
+    border-bottom: 1px dotted var(--rule-faint);
+    cursor: help;
+    padding: 0 2px;
+  }
+
+  /* ── events ────────────────────────────────────────────────────── */
+  .event-prose { margin-bottom: var(--space-3); }
+  .event-prose .doc-prose { margin-bottom: var(--space-2); }
+  .event-choices {
+    display: flex; flex-direction: column; gap: 0;
+    margin-bottom: var(--space-3);
+  }
+  .event-choice {
+    display: flex; align-items: baseline; gap: var(--space-2);
+    flex-wrap: wrap;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px dotted var(--rule-faint);
+    color: var(--ink-100);
+    font-family: var(--font-mono);
+    font-size: var(--fs-body);
+    text-align: left;
+    padding: var(--space-2);
+    cursor: pointer;
+    transition: background var(--dur-quick);
+  }
+  .event-choice:hover { background: rgba(224, 224, 226, 0.04); }
+  .event-choice-marker { color: var(--ink-60); }
+  .event-choice:hover .event-choice-marker { color: var(--doc-blood); }
+  .event-choice-label { color: var(--ink-100); }
+
+  /* ── resolution ────────────────────────────────────────────────── */
+  .resolution-head {
+    display: flex; gap: var(--space-3); align-items: flex-start;
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--rule-faint);
+  }
+  .resolution-head-text { flex: 1; min-width: 0; }
+  .resolution-choice {
+    flex-direction: column; align-items: flex-start;
+    padding: var(--space-2) var(--space-3);
+  }
+  .resolution-trait-hint {
+    width: 100%; padding-left: 22px;
+    color: var(--ink-60);
+    font-size: var(--fs-body-tight);
+    margin-top: 2px;
+  }
+  .resolution-trait-name { color: var(--doc-gold); margin-right: 2px; }
+  .resolution-trait-desc { color: var(--ink-60); }
+  .resolution-prose {
+    white-space: pre-wrap;
+    line-height: 1.7;
+    color: var(--ink-100);
+    margin: var(--space-3) 0;
+  }
+  .resolution-trait-taken {
+    margin: var(--space-3) 0;
+    padding: var(--space-3);
+    border: 1px solid var(--doc-gold);
+  }
+  .resolution-trait-taken .resolution-trait-name {
+    font-size: 16px; color: var(--doc-gold);
+    margin-bottom: var(--space-1);
+    letter-spacing: 1px;
+  }
+  .resolution-trait-taken .resolution-trait-voice {
+    color: var(--ink-100);
+    font-style: italic;
+    margin-bottom: var(--space-2);
+  }
+  .resolution-trait-taken .resolution-trait-desc {
+    color: var(--ink-80);
+    font-size: var(--fs-body-tight);
+  }
+
+  /* ── archive ───────────────────────────────────────────────────── */
+  .archive-resolutions {
+    margin: var(--space-2) 0;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .archive-res-line {
+    display: flex; gap: var(--space-1);
+    padding: 2px 0;
+    font-size: var(--fs-body-tight);
+    color: var(--ink-100);
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .archive-res-patient { color: var(--ink-100); }
+  .archive-res-key { color: var(--ink-80); font-style: italic; }
+  .archive-res-trait { color: var(--doc-gold); }
+  .archive-res-sep { color: var(--ink-40); }
+
+  .doc-archive-summary {
+    margin: var(--space-3) 0;
+    padding: var(--space-2) 0;
+    border-top: 1px dotted var(--rule-faint);
+  }
+  .doc-archive-list { margin-top: var(--space-2); }
+  .doc-archive-line {
+    font-size: var(--fs-body-tight);
+    color: var(--ink-60);
+    padding: 1px 0;
+    font-style: italic;
+  }
+
+  /* ── wound card ────────────────────────────────────────────────── */
+  .wound-card {
+    background: transparent;
+    border: 1px solid var(--rule-faint);
+    border-radius: 0;
+    padding: var(--space-3);
+    cursor: pointer;
+    text-align: left;
+    font-family: var(--font-mono);
+    color: var(--ink-100);
+    transition: border-color var(--dur-quick), background var(--dur-quick);
+    margin-bottom: var(--space-2);
+    display: grid;
+    grid-template-columns: 18px 1fr;
+    gap: var(--space-2);
+  }
+  .wound-card:hover { background: rgba(224, 224, 226, 0.04); border-color: var(--rule-soft); }
+  .wound-card.selected { border-color: var(--doc-gold); background: rgba(212, 164, 40, 0.04); }
+  .wound-card .doc-card-marker { color: var(--ink-40); font-size: var(--fs-body); }
+  .wound-card.selected .doc-card-marker { color: var(--doc-gold); }
+  .wound-card .doc-card-name { font-size: var(--fs-header-2); letter-spacing: 1px; }
+  .wound-card .doc-card-meta { font-style: italic; }
+  .wound-file {
+    margin-top: var(--space-2);
+    font-size: var(--fs-body-tight);
+    color: var(--ink-80);
+    line-height: 1.6;
+  }
+  .wound-file-line { padding: 1px 0; }
+  .wound-signature {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px dotted var(--rule-faint);
+    font-size: var(--fs-body-tight);
+  }
+  .wound-sig-label { color: var(--ink-60); letter-spacing: var(--ls-label); }
+  .wound-sig-name { color: var(--doc-gold); }
+  .wound-sig-desc { color: var(--ink-80); }
+
+  /* ── responsive ───────────────────────────────────────────────── */
+  @media (max-width: 720px) {
+    .enc-screen { padding: var(--space-2); }
+    .enc-strip { font-size: var(--fs-label); gap: 4px; }
+    .enc-grid { grid-template-columns: 1fr; gap: var(--space-2); }
+    .enc-divider { display: none; }
+    .enc-col-patient, .enc-col-player {
+      padding: 0;
+      border-bottom: 1px dotted var(--rule-faint);
+      padding-bottom: var(--space-2);
+    }
+    .enc-glyph { width: 48px; height: 48px; }
+    .enc-name { font-size: 14px; }
+    .enc-actions-grid { grid-template-columns: 1fr; }
+    .enc-stat-label { width: 64px; }
+    .enc-queue-item { grid-template-columns: 12px 36px 60px 1fr; }
+  }
