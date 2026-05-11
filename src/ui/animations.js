@@ -1,16 +1,18 @@
-// DOM-based combat animations targeting the dossier columns.
-// Floats spawn over the relevant glyph portrait; shake/lunge/recoil are
-// CSS animations applied to the dossier column for the affected side.
+// DOM-based combat animations targeting the encounter columns. Floats spawn
+// over the relevant glyph; shake/lunge/recoil are CSS animations applied to
+// the column for the affected side.
 
 import { el } from './dom.js';
 
 function colFor(side) {
-  return document.querySelector(`.dossier-col.${side}`);
+  // new encounter screen uses .enc-col-patient / .enc-col-player
+  const sel = side === 'player' ? '.enc-col-player' : '.enc-col-patient';
+  return document.querySelector(sel);
 }
 
 export function spawnFloat(side, text, kind = 'dmg') {
   const col = colFor(side);
-  const target = col ? col.querySelector('.glyph-portrait') : null;
+  const target = col ? col.querySelector('.enc-glyph') : null;
   if (!target) return;
   const r = target.getBoundingClientRect();
   const f = el('div', { class: 'floating ' + (kind === 'crit' ? 'crit' : kind === 'heal' ? 'heal' : '') }, text);
@@ -24,7 +26,7 @@ export function spawnFloat(side, text, kind = 'dmg') {
 }
 
 export function spawnCallout(text) {
-  const screen = document.querySelector('.dossier-screen');
+  const screen = document.querySelector('.enc-screen');
   if (!screen) return;
   const r = screen.getBoundingClientRect();
   const c = el('div', { class: 'callout' }, text);
@@ -36,22 +38,16 @@ export function spawnCallout(text) {
 }
 
 export function shakeStage() {
-  for (const side of ['player', 'enemy']) pulseCol(side, 'shake-pulse');
+  for (const side of ['player', 'patient']) pulseCol(side, 'shake-pulse');
 }
 
-export function playLunge(side) {
-  pulseCol(side, 'lunge-anim');
-}
-
-export function playRecoil(side) {
-  pulseCol(side, 'recoil-anim');
-}
+export function playLunge(side) { pulseCol(side, 'lunge-anim'); }
+export function playRecoil(side) { pulseCol(side, 'recoil-anim'); }
 
 function pulseCol(side, cls) {
   const col = colFor(side);
   if (!col) return;
   col.classList.remove(cls);
-  // force reflow so the class can re-apply if already present
   void col.offsetWidth;
   col.classList.add(cls);
   setTimeout(() => col.classList.remove(cls), 600);
