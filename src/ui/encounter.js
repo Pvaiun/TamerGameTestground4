@@ -12,9 +12,9 @@ import { state, COMPOSURE_MAX } from '../state.js';
 import { isPlayerTurn, playerVerb, advanceLog, bandFor } from '../combat.js';
 import { renderGlyph } from './glyphs.js';
 import { parseProse } from './textCorrupt.js';
-import { TRAITS } from '../traits.js';
 import { WOUNDS } from '../wounds.js';
 import { SCARS } from '../scars.js';
+import { ITEMS } from '../items.js';
 
 export function renderEncounter() {
   const enc = state.enc;
@@ -121,14 +121,11 @@ function playerColEl(player) {
   // patient-applied effects on the player (e.g. drowsing from Soothlick)
   col.appendChild(playerEffectsRowEl());
 
-  // scars (run-long)
+  // scars (run-long debuffs)
   col.appendChild(scarRowEl(player));
 
-  // traits (with descriptions — discoverability)
-  col.appendChild(traitListEl(player));
-
-  // signature (always visible)
-  if (player.signature) col.appendChild(signatureBlockEl(player.signature));
+  // inventory (one-use items)
+  col.appendChild(itemListEl(player));
 
   return col;
 }
@@ -217,21 +214,23 @@ function playerEffectsRowEl() {
   return wrap;
 }
 
-function traitListEl(player) {
+function itemListEl(player) {
   const wrap = el('div', { class: 'enc-trait-block' });
-  wrap.appendChild(el('div', { class: 'enc-stat-label' }, 'traits'));
-  const traits = (player.traits || []).filter(t => TRAITS[t]);
-  if (!traits.length) {
-    wrap.appendChild(el('div', { class: 'enc-status-empty' }, '— none yet —'));
+  wrap.appendChild(el('div', { class: 'enc-stat-label' }, 'in my pocket'));
+  const items = (player.items || []).filter(i => ITEMS[i]);
+  if (!items.length) {
+    wrap.appendChild(el('div', { class: 'enc-status-empty' }, '— empty —'));
     return wrap;
   }
-  // Stacked as plain divs so narrow viewports don't smash name + desc together.
   const list = el('div', { class: 'enc-trait-stack' });
-  for (const tid of traits) {
-    const t = TRAITS[tid];
-    const row = el('div', { class: 'enc-trait-card' });
-    row.appendChild(el('div', { class: 'enc-trait-card-name' }, t.name));
-    row.appendChild(el('div', { class: 'enc-trait-card-desc' }, t.desc));
+  for (const iid of items) {
+    const it = ITEMS[iid];
+    const row = el('div', { class: 'enc-trait-card item' });
+    row.appendChild(el('div', { class: 'enc-trait-card-name' }, it.name));
+    if (it.file) {
+      row.appendChild(el('div', { class: 'enc-trait-card-file', html: parseProse(it.file) }));
+    }
+    row.appendChild(el('div', { class: 'enc-trait-card-desc' }, it.desc));
     list.appendChild(row);
   }
   wrap.appendChild(list);
@@ -255,18 +254,6 @@ function scarRowEl(player) {
     list.appendChild(row);
   }
   wrap.appendChild(list);
-  return wrap;
-}
-
-function signatureBlockEl(sig) {
-  const t = TRAITS[sig.id];
-  // Stacked as plain divs so the layout doesn't depend on grid columns
-  // (which can collapse at narrow widths and smash the spans together).
-  const wrap = el('div', { class: 'enc-trait-block enc-sig-block' });
-  wrap.appendChild(el('div', { class: 'enc-stat-label' },
-    `signature · ${sig.usesLeft > 0 ? `${sig.usesLeft} use` : 'spent'}`));
-  wrap.appendChild(el('div', { class: 'enc-sig-name' }, t ? t.name : sig.id));
-  wrap.appendChild(el('div', { class: 'enc-sig-desc' }, t ? t.desc : ''));
   return wrap;
 }
 
@@ -380,13 +367,18 @@ function listVerbs(enc) {
       danger: true,
     });
   }
-  if (p.signature && p.signature.usesLeft > 0) {
-    const t = TRAITS[p.signature.id];
+  // items in pocket — each is a one-use verb gated by its own `when`.
+  for (const iid of (p.items || [])) {
+    const it = ITEMS[iid];
+    if (!it) continue;
+    if (typeof it.when === 'function') {
+      try { if (!it.when(pat, p)) continue; } catch (e) { continue; }
+    }
     acts.push({
-      id: 'signature',
-      label: (t ? t.name : 'SIGNATURE').toUpperCase(),
-      desc: t ? t.desc : '',
-      signature: true,
+      id: `item:${iid}`,
+      label: (it.name || iid).toUpperCase(),
+      desc: it.desc || '',
+      item: true,
     });
   }
   return acts;
@@ -394,13 +386,13 @@ function listVerbs(enc) {
 
 function verbButton(act) {
   const cls = 'enc-act'
-    + (act.signature ? ' sig' : '')
+    + (act.item ? ' item' : '')
     + (act.danger ? ' danger' : '');
   const btn = el('button', { class: cls });
   btn.addEventListener('click', () => playerVerb(act.id));
-  btn.appendChild(el('span', { class: 'enc-act-marker' }, '▸'));
+  btn.appendChild(el('span', { class: 'enc-act-marker' }, act.item ? '◆' : '▸'));
   btn.appendChild(el('span', { class: 'enc-act-label' }, act.label));
-  if (act.signature) btn.appendChild(el('span', { class: 'enc-act-tag' }, 'once'));
+  if (act.item) btn.appendChild(el('span', { class: 'enc-act-tag' }, 'use'));
   btn.appendChild(el('span', { class: 'enc-act-desc', html: parseProse(act.desc || '') }));
   return btn;
 }

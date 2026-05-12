@@ -5,12 +5,11 @@
 
 import { state, RUN_DEPTH } from './state.js';
 import { pick, pickN, randi } from './rng.js';
-import { makePlayer, beginEncounter, addTrait, recomputePlayerStats, acknowledgeResolution } from './combat.js';
+import { makePlayer, beginEncounter, recomputePlayerStats, acknowledgeResolution } from './combat.js';
 import { COMPOSURE_MAX } from './state.js';
 import { PATIENTS, getPatient } from './patients.js';
 import { EVENTS, pickEventPool } from './events.js';
 import { recordRunOutcome } from './save.js';
-import { TRAITS } from './traits.js';
 import { render } from './ui/render.js';
 
 // A node is one stop on the corridor.
@@ -22,9 +21,9 @@ function newNode(kind, id, wing) {
   return { kind, id, wing, visited: false };
 }
 
-export function startNewRun(wound) {
+export function startNewRun(wound, startingItem) {
   const save = state.save;
-  const player = makePlayer(wound);
+  const player = makePlayer(wound, startingItem);
   // build the corridor: alternate event-patient through RUN_DEPTH wings,
   // ending with the final boss.
   const patientPool = save.unlocked.patients.filter(id => PATIENTS[id]);
@@ -85,40 +84,23 @@ export function enterCurrentNode() {
   }
 }
 
-// Move to the next node. Called after a resolution / event finishes. Fires
-// onCorridorEntry trait hooks (so e.g. small_warmth heals between rooms).
+// Move to the next node. Called after a resolution / event finishes.
 export function advanceRun() {
   if (!state.run) return;
   state.run.idx++;
   if (state.run.idx >= state.run.nodes.length) {
     return endRun({ outcome: 'finished' });
   }
-  fireCorridorHooks(state.run.player);
   state.screen = 'corridor';
   render();
 }
 
-function fireCorridorHooks(player) {
-  for (const tid of player.traits || []) {
-    const t = TRAITS[tid];
-    if (!t || !t.hooks || !t.hooks.onCorridorEntry) continue;
-    const ctx = {
-      player,
-      healOutOfCombat: (n) => {
-        player.composure = Math.min(player.composureMax, (player.composure || 0) + n);
-      },
-    };
-    try { t.hooks.onCorridorEntry(ctx); } catch (e) { console.error('trait corridor hook', tid, e); }
-  }
-}
-
-// The encounter resolved with an ending. acknowledgeResolution applies the
-// pending trait + scars to the player (filtered by trait hooks like
-// redacted), and we record the resolution for the archive.
+// The encounter resolved with an ending. acknowledgeResolution applies
+// the pending item + scars; we record the resolution for the archive.
 export function applyResolutionAndAdvance() {
   const enc = state.enc;
   if (!enc) return;
-  const trait = enc.pendingTrait;
+  const item = enc.pendingItem;
   const ending = enc.endingId;
   acknowledgeResolution();
   state.run.resolutionsTaken.push({
@@ -126,7 +108,7 @@ export function applyResolutionAndAdvance() {
     endingId: ending,
     endingTitle: enc.endingTitle || ending,
     endingLines: [...(enc.endingLines || [])],
-    trait,
+    item,
     scars: [...(enc.pendingScars || [])],
   });
   state.enc = null;

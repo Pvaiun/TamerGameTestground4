@@ -1775,6 +1775,45 @@
     font-style: italic;
   }
 
+  /* composure cost — a short red phrase the engine emits when the player
+     takes composure damage. fired AFTER the authored prose so the cost
+     lands as punctuation, with the amount in red on the right. */
+  .enc-narr-line.cost {
+    color: var(--doc-blood);
+    border-left-color: var(--doc-blood);
+    font-style: italic;
+    background: rgba(200, 48, 42, 0.05);
+  }
+  .enc-narr-line.cost .enc-narr-dmg::before { content: 'composure '; color: var(--ink-60); font-size: var(--fs-label-2); }
+
+  /* item action buttons — rendered alongside verbs in the action menu.
+     marked with a diamond instead of a triangle, and a soft gold tint so
+     they read as something out of your pocket. */
+  .enc-act.item {
+    border-left: 2px solid var(--doc-gold);
+    padding-left: var(--space-2);
+    background: rgba(212, 164, 40, 0.02);
+  }
+  .enc-act.item:hover:not(:disabled) {
+    background: rgba(212, 164, 40, 0.07);
+  }
+  .enc-act.item .enc-act-marker { color: var(--doc-gold); }
+  .enc-act.item .enc-act-label { color: var(--doc-gold); }
+  .enc-act.item .enc-act-tag { color: var(--doc-gold); }
+
+  /* inventory rows in player column + corridor */
+  .enc-trait-card.item .enc-trait-card-name { color: var(--doc-gold); }
+  .enc-trait-card-file {
+    color: var(--ink-60);
+    font-size: var(--fs-body-tight);
+    font-style: italic;
+    line-height: 1.4;
+    margin-top: 2px;
+  }
+  .corridor-trait-row.item .corridor-trait-name { color: var(--doc-gold); }
+  .item-card .doc-card-name { color: var(--doc-gold); }
+  .item-card.selected { border-color: var(--doc-gold); }
+
   /* corridor — section labels for "what I carry" / "what stayed" need a
      blank line of vertical space; without it the heading sits flush
      against the previous block. */
