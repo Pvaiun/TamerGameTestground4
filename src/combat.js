@@ -103,6 +103,7 @@ export function beginEncounter(patientDef, player) {
     pendingScars: [],
     _revealedFile: [],     // indices of file lines uncovered through play
     _knownBands: {},       // scale-key → last seen band index (for cross detection)
+    _totalScaleMovement: 0, // running sum of |actual scale deltas| — drives file reveals
   };
   // seed _knownBands so the first turn's cross-messages are meaningful
   for (const k of Object.keys(patient.scales)) {
@@ -318,7 +319,10 @@ async function applyResponse(resp) {
   }
 
   if (resp.scales) {
-    for (const [k, dv] of Object.entries(resp.scales)) shiftScale(pat, k, dv);
+    for (const [k, dv] of Object.entries(resp.scales)) {
+      const actual = shiftScale(pat, k, dv);
+      enc._totalScaleMovement = (enc._totalScaleMovement || 0) + Math.abs(actual);
+    }
   }
   if (resp.effects) {
     for (const [k, dv] of Object.entries(resp.effects)) {
@@ -421,28 +425,36 @@ export function bandFor(pat, key) {
   return def.bands[bandIndex(pat, key)] || null;
 }
 
+// File reveals are paced by cumulative scale movement (`enc._totalScaleMovement`)
+// rather than turns or fixed scale thresholds — so investigative *engagement*
+// uncovers the file, not the calendar. Reveals fire strictly in order and at
+// most one per response, so each line gets its own narrative beat.
+const DEFAULT_REVEAL_THRESHOLDS = [7, 20, 35];
+
 async function checkFileReveals(pat) {
   const enc = state.enc;
   if (!Array.isArray(pat.def.fileReveals)) return;
   enc._revealedFile = enc._revealedFile || [];
-  for (const fr of pat.def.fileReveals) {
-    if (enc._revealedFile.includes(fr.line)) continue;
-    let matches = false;
-    try { matches = !!fr.when(pat, enc.player); } catch (e) {}
-    if (!matches) continue;
-    enc._revealedFile.push(fr.line);
-    const announce = fr.announce || 'a line of the file fills itself in. ~~in my hand.~~';
-    pushLog({ text: announce, cls: 'reveal' });
-    await drainLog();
-  }
+  const nextIdx = enc._revealedFile.length;
+  if (nextIdx >= pat.def.fileReveals.length) return;
+  const fr = pat.def.fileReveals[nextIdx];
+  const threshold = (typeof fr.at === 'number') ? fr.at
+                  : (DEFAULT_REVEAL_THRESHOLDS[nextIdx] ?? 99);
+  if ((enc._totalScaleMovement || 0) < threshold) return;
+  enc._revealedFile.push(nextIdx);
+  const announce = fr.announce || 'a line of the file fills itself in. ~~in my hand.~~';
+  pushLog({ text: announce, cls: 'reveal' });
+  await drainLog();
 }
 
 function shiftScale(pat, key, delta) {
-  if (delta === 0) return;
+  if (delta === 0) return 0;
   const def = pat.def.scales?.[key];
   const min = def?.min ?? 0;
   const max = def?.max ?? 5;
-  pat.scales[key] = clamp((pat.scales[key] || 0) + delta, min, max);
+  const before = pat.scales[key] || 0;
+  pat.scales[key] = clamp(before + delta, min, max);
+  return pat.scales[key] - before;
 }
 
 // ─── endings ────────────────────────────────────────────────────────────

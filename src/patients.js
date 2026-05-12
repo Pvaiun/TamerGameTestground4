@@ -11,7 +11,8 @@
 //   initialize(patient, player)        — set scale starting values (with RNG)
 //   presented(patient): string         — composed sentence read each turn
 //   fileReveals: [
-//     { line: 0|1|2, when(patient, player): bool, announce?: 'string' }
+//     { at?: number, announce?: 'string' }, // sequential — array index is the file-line
+//     ...                                   // `at` is cumulative scale movement; defaults to [7, 20, 35]
 //   ]
 //   verbs: {
 //     [verbId]: {
@@ -157,12 +158,9 @@ const pram = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.lucidity >= 3 || p.scales.tenderness >= 5,
-      announce: 'a line of her file fills itself in. ~~the pram. the pram is empty.~~' },
-    { line: 1, when: (p) => p.scales.grip <= 4 && p.scales.lucidity >= 4,
-      announce: 'another line, in my hand. **she has not been told.**' },
-    { line: 2, when: (p) => p.scales.lucidity >= 7 || (p.scales.lucidity >= 5 && p.scales.tenderness >= 7),
-      announce: 'the last line writes itself. ~~she meant herself.~~' },
+    { announce: 'a line of her file fills itself in. ~~the pram. the pram is empty.~~' },
+    { announce: 'another line, in my hand. **she has not been told.**' },
+    { announce: 'the last line writes itself. ~~she meant herself.~~' },
   ],
 
   presented(p) {
@@ -973,12 +971,9 @@ const pyrelord = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.presence <= 6 || p.scales.recognition >= 3,
-      announce: 'a line writes itself in. ~~the room remains his.~~' },
-    { line: 1, when: (p) => p.scales.grief >= 5 && p.scales.recognition >= 3,
-      announce: 'another. ~~since 1986. longer.~~' },
-    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.grief >= 7,
-      announce: 'the last line, in my hand. **he knows their names.**' },
+    { announce: 'a line writes itself in. ~~the room remains his.~~' },
+    { announce: 'another. ~~since 1986. longer.~~' },
+    { announce: 'the last line, in my hand. **he knows their names.**' },
   ],
 
   presented(p) {
@@ -1654,12 +1649,9 @@ const soothlick = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.sight >= 3 || p.scales.trust >= 4,
-      announce: 'a line of her file fills in. ~~thirty-eight years.~~' },
-    { line: 1, when: (p) => p.scales.sight >= 5 && p.scales.tending >= 4,
-      announce: 'another line. **she does not turn the door handle.**' },
-    { line: 2, when: (p) => p.scales.sight >= 7 || (p.scales.sight >= 5 && p.scales.trust >= 6),
-      announce: 'the last line. ~~they do not wake all the way.~~' },
+    { announce: 'a line of her file fills in. ~~thirty-eight years.~~' },
+    { announce: 'another line. **she does not turn the door handle.**' },
+    { announce: 'the last line. ~~they do not wake all the way.~~' },
   ],
 
   presented(p) {
@@ -2300,12 +2292,9 @@ const glimmer = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.present >= 2 || p.scales.stare <= 5,
-      announce: 'a line of his file fills in. ~~he was eight when it ran into the road.~~' },
-    { line: 1, when: (p) => p.scales.present >= 4 && p.scales.pressure <= 4,
-      announce: '**he watched. the rest of the family looked away.**' },
-    { line: 2, when: (p) => p.scales.present >= 6 || p.scales.stare <= 2,
-      announce: 'the last line, in my hand. ~~it has been forty years.~~' },
+    { announce: 'a line of his file fills in. ~~he was eight when it ran into the road.~~' },
+    { announce: '**he watched. the rest of the family looked away.**' },
+    { announce: 'the last line, in my hand. ~~it has been forty years.~~' },
   ],
 
   presented(p) {
@@ -2884,12 +2873,9 @@ const frostfin = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.recognition >= 3 || p.scales.warmth >= 3,
-      announce: 'a line of her file fills in. ~~the bench outside the train station.~~' },
-    { line: 1, when: (p) => p.scales.recognition >= 5 && p.scales.warmth >= 3,
-      announce: 'another. ~~her son said he would come.~~' },
-    { line: 2, when: (p) => p.scales.warmth >= 7 || (p.scales.warmth >= 5 && p.scales.recognition >= 6),
-      announce: 'the last line. **staff do not hold them long.**' },
+    { announce: 'a line of her file fills in. ~~the bench outside the train station.~~' },
+    { announce: 'another. ~~her son said he would come.~~' },
+    { announce: 'the last line. **staff do not hold them long.**' },
   ],
 
   presented(p) {
@@ -3465,12 +3451,9 @@ const choir = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.recognition >= 2 || p.scales.chord >= 4,
-      announce: 'a line of the file fills in. ~~there is a room I have not been in.~~' },
-    { line: 1, when: (p) => p.scales.recognition >= 5,
-      announce: '**every patient I have met. and others I have not.**' },
-    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.voice >= 4,
-      announce: '!!they have been singing the whole time.!!' },
+    { announce: 'a line of the file fills in. ~~there is a room I have not been in.~~' },
+    { announce: '**every patient I have met. and others I have not.**' },
+    { announce: '!!they have been singing the whole time.!!' },
   ],
 
   presented(p) {
@@ -4011,12 +3994,9 @@ const hollow = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.recognition >= 3 || p.scales.grief >= 4,
-      announce: 'a line of her file fills in. ~~her daughter.~~ ~~the one she came in with.~~' },
-    { line: 1, when: (p) => p.scales.recognition >= 5 && p.scales.insistence <= 5,
-      announce: '**the room next door is empty.**' },
-    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.grief >= 7,
-      announce: 'the last line, in my hand. ~~she gave the orderly\'s name.~~' },
+    { announce: 'a line of her file fills in. ~~her daughter.~~ ~~the one she came in with.~~' },
+    { announce: '**the room next door is empty.**' },
+    { announce: 'the last line, in my hand. ~~she gave the orderly\'s name.~~' },
   ],
 
   presented(p) {
@@ -4579,12 +4559,9 @@ const mire = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.pond >= 4 || p.scales.recognition >= 3,
-      announce: 'a line of her file fills in. ~~there is no pond on the grounds.~~' },
-    { line: 1, when: (p) => p.scales.release >= 4 || p.scales.recognition >= 5,
-      announce: '~~the statue.~~ ~~none on file.~~' },
-    { line: 2, when: (p) => p.scales.release >= 7 || (p.scales.release >= 5 && p.scales.recognition >= 5),
-      announce: 'the last line. **she put something in a pond, once.**' },
+    { announce: 'a line of her file fills in. ~~there is no pond on the grounds.~~' },
+    { announce: '~~the statue.~~ ~~none on file.~~' },
+    { announce: 'the last line. **she put something in a pond, once.**' },
   ],
 
   presented(p) {
@@ -5163,12 +5140,9 @@ const composer = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.silence >= 3 || p.scales.completion >= 4,
-      announce: 'a line of her file fills in. ~~composing in the day room since admission.~~' },
-    { line: 1, when: (p) => p.scales.completion >= 5 || p.scales.chord >= 6,
-      announce: '~~she holds the notes.~~ she does not write them down.' },
-    { line: 2, when: (p) => p.scales.completion >= 7 || p.scales.tension >= 5,
-      announce: 'the last line. **she does not look up.**' },
+    { announce: 'a line of her file fills in. ~~composing in the day room since admission.~~' },
+    { announce: '~~she holds the notes.~~ she does not write them down.' },
+    { announce: 'the last line. **she does not look up.**' },
   ],
 
   presented(p) {
