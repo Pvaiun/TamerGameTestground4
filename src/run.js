@@ -29,12 +29,17 @@ export function startNewRun(wound, startingItem) {
   const patientPool = save.unlocked.patients.filter(id => PATIENTS[id]);
   const finalId = 'choir';   // the final is always the choir; not a wing patient.
   // exclude the final from the wing patient pool. Sample without replacement,
-  // then sort by tier ascending so easier patients arrive first. (Wing 1 is
-  // the player's onboarding fight.)
+  // then sort by tier with jitter so adjacent tiers can swap — the player
+  // shouldn't always face the lowest-tier patient in wing 1, but a tier 3
+  // also shouldn't usually open the run.
   const wingCandidates = patientPool.filter(id => id !== finalId && PATIENTS[id].role !== 'final');
   const chosenPatients = pickN(wingCandidates, Math.min(RUN_DEPTH, wingCandidates.length));
   while (chosenPatients.length < RUN_DEPTH) chosenPatients.push(pick(wingCandidates));
-  chosenPatients.sort((a, b) => (PATIENTS[a]?.tier ?? 2) - (PATIENTS[b]?.tier ?? 2));
+  chosenPatients.sort((a, b) => {
+    const ta = (PATIENTS[a]?.tier ?? 2) + Math.random() * 1.2;
+    const tb = (PATIENTS[b]?.tier ?? 2) + Math.random() * 1.2;
+    return ta - tb;
+  });
 
   const eventPool = pickEventPool(RUN_DEPTH);
 

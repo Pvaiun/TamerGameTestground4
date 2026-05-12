@@ -169,8 +169,20 @@ function woundCardEl(w, selected) {
     file.appendChild(el('div', { class: 'wound-file-line', html: parseProse(line) }));
   }
   body.appendChild(file);
+  body.appendChild(el('div', { class: 'wound-signature' }, woundMechLine(w)));
   card.appendChild(body);
   return card;
+}
+
+function woundMechLine(w) {
+  const start = w.mods?.startComposure ?? 0;
+  const capBonus = w.mods?.composureMax ?? 0;
+  const cap = 5 + capBonus;
+  const parts = [`start · ${start} of ${cap} composure each room`];
+  if (capBonus > 0) parts.push('the gauge holds more');
+  if (start >= 4) parts.push('calmer at the door');
+  else if (start <= 2) parts.push('thin on entry');
+  return parts.join(' · ');
 }
 
 function stripMarkup(s) {
