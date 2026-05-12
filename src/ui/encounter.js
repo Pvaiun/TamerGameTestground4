@@ -9,7 +9,7 @@
 
 import { el, app } from './dom.js';
 import { state, COMPOSURE_MAX } from '../state.js';
-import { isPlayerTurn, playerVerb, advanceLog } from '../combat.js';
+import { isPlayerTurn, playerVerb, advanceLog, bandFor } from '../combat.js';
 import { renderGlyph } from './glyphs.js';
 import { parseProse } from './textCorrupt.js';
 import { TRAITS } from '../traits.js';
@@ -66,10 +66,20 @@ function patientColEl(patient) {
   head.appendChild(headText);
   col.appendChild(head);
 
-  // file (small, 3 lines)
+  // file (small, 3 lines). lines are redacted until the player has earned
+  // them — uncovered as the patient's state crosses certain thresholds.
   const file = el('div', { class: 'enc-file' });
-  for (const line of patient.file || []) {
-    file.appendChild(el('div', { class: 'enc-file-line', html: parseProse(line) }));
+  const encRef = state.enc;
+  const revealed = encRef._revealedFile || [];
+  const lines = patient.file || [];
+  for (let i = 0; i < lines.length; i++) {
+    if (revealed.includes(i)) {
+      file.appendChild(el('div', { class: 'enc-file-line', html: parseProse(lines[i]) }));
+    } else {
+      const placeholder = el('div', { class: 'enc-file-line enc-file-line-redacted' });
+      placeholder.appendChild(el('span', { class: 'redact', style: 'width:36ch;' }, ' '));
+      file.appendChild(placeholder);
+    }
   }
   col.appendChild(file);
 
@@ -126,8 +136,6 @@ function playerColEl(player) {
 function scaleListEl(patient) {
   const wrap = el('div', { class: 'enc-scales' });
   wrap.appendChild(el('div', { class: 'enc-section-label' }, '─ what shifts ─'));
-  const enc = state.enc;
-  const revealed = enc._revealed || [];
   const entries = Object.entries(patient.def.scales || {});
   if (!entries.length) {
     wrap.appendChild(el('div', { class: 'enc-scale-empty' }, '— nothing the file tracks —'));
@@ -135,27 +143,40 @@ function scaleListEl(patient) {
   }
   const list = el('div', { class: 'enc-scale-list' });
   for (const [key, def] of entries) {
-    const kind = def.kind || '';   // 'positive' | 'negative' | ''
     const row = el('div', { class: 'enc-scale-row' });
-    row.appendChild(el('span', { class: 'enc-scale-name ' + kind }, def.label || key));
-    if (revealed.includes(key)) {
-      const max = def.max ?? 5;
-      const val = patient.scales[key] ?? 0;
-      const pips = el('span', { class: 'enc-scale-pips' });
-      for (let i = 0; i < max; i++) {
-        const cls = 'enc-scale-pip' + (i < val ? ' lit ' + kind : '');
-        pips.appendChild(el('span', { class: cls }, i < val ? '●' : '○'));
-      }
-      row.appendChild(pips);
-    } else {
-      const veil = el('span', { class: 'enc-scale-veil' });
-      veil.innerHTML = parseProse('~~?~~');
-      row.appendChild(veil);
-    }
+    row.appendChild(el('span', { class: 'enc-scale-name' }, (def.label || key) + ' ·'));
+    const band = bandFor(patient, key);
+    const word = band?.word ?? '—';
+    const tone = bandTone(def, band);
+    row.appendChild(el('span', { class: 'enc-scale-word ' + tone }, word));
     list.appendChild(row);
   }
   wrap.appendChild(list);
   return wrap;
+}
+
+// Resolve a band's tone — explicit if authored, else inferred from the
+// band's position in the bands array combined with the scale's kind. The
+// first/last bands of a scale anchor the tone; middle bands stay neutral.
+function bandTone(scaleDef, band) {
+  if (!band) return 'neutral';
+  if (band.tone) return band.tone;
+  const bands = scaleDef.bands || [];
+  if (bands.length <= 1) return 'neutral';
+  const idx = bands.indexOf(band);
+  const kind = scaleDef.kind || '';
+  const lowFrac = idx / (bands.length - 1);
+  if (kind === 'positive') {
+    if (lowFrac >= 0.75) return 'good';
+    if (lowFrac <= 0.25) return 'bad';
+    return 'neutral';
+  }
+  if (kind === 'negative') {
+    if (lowFrac >= 0.75) return 'bad';
+    if (lowFrac <= 0.25) return 'good';
+    return 'neutral';
+  }
+  return 'neutral';
 }
 
 function composureRowEl(player) {
@@ -333,8 +354,32 @@ function listVerbs(enc) {
     }
     acts.push({ id, label: v.label.toUpperCase(), desc: v.desc || '' });
   }
-  acts.push({ id: 'wait', label: 'WAIT', desc: 'let the room move on its own.' });
-  acts.push({ id: 'leave', label: 'LEAVE', desc: 'close the door behind you. composure −2. ~~it leaves a mark.~~', danger: true });
+  // WAIT is no longer in the menu by default. Each patient may surface it
+  // via `wait.when(patient, player)`; otherwise it stays hidden.
+  if (typeof pat.def.wait?.when === 'function') {
+    try {
+      if (pat.def.wait.when(pat, p)) {
+        acts.push({
+          id: 'wait',
+          label: (pat.def.wait.label || 'WAIT').toUpperCase(),
+          desc: pat.def.wait.desc || 'let the room move on its own.',
+        });
+      }
+    } catch (e) {}
+  }
+  // LEAVE surfaces only when the player has run themselves down or stayed
+  // a long time — it's the "close the file" option, not a casual button.
+  const canLeave = (typeof pat.def.leave?.when === 'function')
+    ? (() => { try { return !!pat.def.leave.when(pat, p); } catch { return false; } })()
+    : (p.composure <= 1 || pat.turn >= 6);
+  if (canLeave) {
+    acts.push({
+      id: 'leave',
+      label: (pat.def.leave?.label || 'LEAVE').toUpperCase(),
+      desc: pat.def.leave?.desc || 'close the door behind you. ~~it leaves a mark.~~',
+      danger: true,
+    });
+  }
   if (p.signature && p.signature.usesLeft > 0) {
     const t = TRAITS[p.signature.id];
     acts.push({

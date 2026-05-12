@@ -1732,11 +1732,80 @@
     font-style: italic;
   }
 
-  /* scale kind hints — positive scales light up in gold, negative in red */
-  .enc-scale-pip.lit.positive { color: var(--doc-gold); }
-  .enc-scale-pip.lit.negative { color: var(--doc-blood); }
-  .enc-scale-name.positive    { color: var(--ink-100); }
-  .enc-scale-name.negative    { color: var(--doc-blood); }
+  /* scale name + word display (replaces the old reveal-gated pip rows).
+     each scale shows its label and the word that names its current band.
+     the word is colored: gold when in a desired direction, red when bad,
+     white in middle bands. */
+  .enc-scale-name {
+    color: var(--ink-80);
+    letter-spacing: 0.5px;
+    font-size: var(--fs-body-tight);
+    flex-shrink: 0;
+  }
+  .enc-scale-word {
+    color: var(--ink-100);
+    font-size: var(--fs-body-tight);
+    letter-spacing: 0.5px;
+    font-style: italic;
+  }
+  .enc-scale-word.good { color: var(--doc-gold); font-style: normal; }
+  .enc-scale-word.bad  { color: var(--doc-blood); font-style: normal; }
+  .enc-scale-word.neutral { color: var(--ink-100); }
+
+  /* file-line reveal — unrevealed file lines render as a redacted bar.
+     once a threshold uncovers the line, parseProse renders it. */
+  .enc-file-line-redacted {
+    padding: 2px 0;
+  }
+  .enc-file-line-redacted .redact {
+    opacity: 0.85;
+  }
+
+  /* threshold-cross narrative — the engine emits one of these any time a
+     scale crosses into a new band. they punctuate the authored prose
+     without adding mechanical (scale rises.) noise to every shift. */
+  .enc-narr-line.cross {
+    color: var(--ink-100);
+    border-left-color: var(--ink-80);
+    font-style: italic;
+  }
+  .enc-narr-line.reveal {
+    color: var(--doc-gold);
+    border-left-color: var(--doc-gold);
+    font-style: italic;
+  }
+
+  /* corridor — section labels for "what I carry" / "what stayed" need a
+     blank line of vertical space; without it the heading sits flush
+     against the previous block. */
+  .corridor-trait-list-label {
+    color: var(--ink-60);
+    font-size: var(--fs-label-2);
+    letter-spacing: var(--ls-label);
+    margin-top: var(--space-3);
+    margin-bottom: var(--space-1);
+    padding-top: var(--space-1);
+    border-top: 1px dotted var(--rule-faint);
+  }
+  .corridor-trait-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: baseline;
+    padding: 2px 0;
+    font-size: var(--fs-body-tight);
+    flex-wrap: wrap;
+  }
+  .corridor-trait-name {
+    color: var(--doc-gold);
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+  }
+  .corridor-trait-row.scar .corridor-trait-name { color: var(--doc-blood); }
+  .corridor-trait-desc {
+    color: var(--ink-80);
+    flex: 1;
+    min-width: 0;
+  }
 
   /* archive recap cards */
   .archive-res-card {

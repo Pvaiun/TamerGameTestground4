@@ -1,52 +1,52 @@
 // Each patient is a hand-authored conversation. They expose:
 //
-//   scales: { key: { initial, min, max, label, kind?: 'positive'|'negative' } }
+//   scales: {
+//     key: {
+//       initial, min, max, label, kind: 'positive'|'negative',
+//       bands: [{ at, word, tone? }, ...],         // threshold descriptors
+//       crossUp:   { [bandIdx]: 'message' },       // crossed UP into band
+//       crossDown: { [bandIdx]: 'message' },       // crossed DOWN into band
+//     }
+//   }
 //   initialize(patient, player)        — set scale starting values (with RNG)
 //   presented(patient): string         — composed sentence read each turn
+//   fileReveals: [
+//     { line: 0|1|2, when(patient, player): bool, announce?: 'string' }
+//   ]
 //   verbs: {
 //     [verbId]: {
 //       label, desc,
-//       when?(patient, player): bool   — contextual gating
+//       when?(patient, player): bool   — contextual gating (be strict; the
+//                                        menu should hold 3–4 things at once)
 //       respond(patient, player): Response
 //     }
 //   }
+//   wait?:  { label?, desc?, when(p, player): bool, respond?(p, player) }
+//   leave?: { label?, desc?, when(p, player): bool, respond?(p, player) }
 //   interjections: [
 //     { id, when, once?, prose: [...], responses: [{ label, lines, scales, composure, scars, ... }] }
 //   ]
-//   drift(patient, player): Response   — what happens on WAIT
+//   drift(patient, player): Response   — fallback for WAIT
 //   endings: [{ id, when, title, lines, trait?, scars? }]
 //
 // Response shape: { lines: string[]|string, scales: {key: delta},
 // composure: int, scars: string[], flags: {key: bool}, ... }
 //
-// `patient.flags.lastVerb` and `patient.flags.streak` are auto-tracked by
-// the engine — authored responses can read these to make repeated verbs
-// land differently. No more upfront composure cost; composure changes
-// happen as response consequences.
+// Authored prose should NOT include trailing parenthetical "(scale rises.)"
+// lines. The engine emits a single threshold-cross sentence after the
+// response — pulled from the scale's crossUp / crossDown messages — only
+// when a scale moves into a new named band. This makes feedback feel like
+// a continuation of the narrative, not a stat panel.
 
 import { randi, pick } from './rng.js';
 
 function r(min, max) { return randi(min, max); }
-function repeated(p, verbId) { return p.flags.lastVerb === verbId && (p.flags.streak || 1) > 1; }
 function streakCount(p, verbId) { return p.flags.lastVerb === verbId ? (p.flags.streak || 1) : 0; }
 
 
 // ════════════════════════════════════════════════════════════════════════
 // THE EMPTY PRAM — Patient 0028
 // ════════════════════════════════════════════════════════════════════════
-//
-// Four scales — two you want to fill (tenderness, lucidity), two you want
-// to keep low (grip, agitation). 0–10 each. Plenty of room for the fight
-// to breathe.
-//
-// Most verbs only appear when their scale conditions hold — so the menu
-// shifts as you read her. Two interjections fire on her own terms (she
-// looks up at you, she asks if she's allowed to sleep) and replace your
-// verb menu with a small set of authored answers.
-//
-// Spam-resistance: every verb's response branches on whether you've just
-// used the same verb. Rocking with her once is gentle; the third time in
-// a row she stops responding.
 
 const pram = {
   id: 'pram',
@@ -65,70 +65,148 @@ const pram = {
   ],
 
   scales: {
-    tenderness: { initial: 2, min: 0, max: 10, label: 'tenderness', kind: 'positive' },
-    lucidity:   { initial: 0, min: 0, max: 10, label: 'lucidity',   kind: 'positive' },
-    grip:       { initial: 6, min: 0, max: 10, label: 'grip',       kind: 'negative' },
-    agitation:  { initial: 1, min: 0, max: 10, label: 'agitation',  kind: 'negative' },
+    tenderness: {
+      initial: 2, min: 0, max: 10, label: 'tenderness', kind: 'positive',
+      bands: [
+        { at: 0, word: 'closed off' },
+        { at: 2, word: 'guarded' },
+        { at: 5, word: 'softening' },
+        { at: 7, word: 'open' },
+        { at: 9, word: 'trusting' },
+      ],
+      crossUp: {
+        2: 'her shoulders ease — by a quarter inch.',
+        3: 'something in her has begun to lean toward me.',
+        4: 'she is here, with me, in the way mothers are here.',
+      },
+      crossDown: {
+        2: 'her shoulders cinch again. the door is in her face.',
+        1: 'she has gone behind her eyes. I am not in this with her.',
+        0: '~~she has~~ she has put me out of the room without standing up.',
+      },
+    },
+    lucidity: {
+      initial: 0, min: 0, max: 10, label: 'lucidity', kind: 'positive',
+      bands: [
+        { at: 0, word: 'far away' },
+        { at: 2, word: 'fogged' },
+        { at: 5, word: 'stirring' },
+        { at: 7, word: 'clear-eyed' },
+        { at: 9, word: 'lucid' },
+      ],
+      crossUp: {
+        2: 'her eyes have come up off the blanket.',
+        3: 'she is in the room with me — partly.',
+        4: '!!she has remembered where she is.!!',
+      },
+      crossDown: {
+        1: 'she has slipped under again.',
+        0: 'her eyes are gone. ~~for now.~~',
+      },
+    },
+    grip: {
+      initial: 6, min: 0, max: 10, label: 'grip', kind: 'negative',
+      bands: [
+        { at: 0, word: 'hands open' },
+        { at: 3, word: 'resting on the handle' },
+        { at: 5, word: 'tight' },
+        { at: 7, word: 'white-knuckled' },
+        { at: 9, word: 'fused to it' },
+      ],
+      crossUp: {
+        2: 'her hands have tightened on the handle.',
+        3: 'her arms are rigid. the pram is hers, and only hers.',
+        4: '!!her hands have stopped being hands.!!',
+      },
+      crossDown: {
+        3: 'her arms ease, by a degree.',
+        2: 'her fingers have loosened on the handle.',
+        1: 'her hands are her own again. she has set them down.',
+        0: 'her hands are open in her lap.',
+      },
+    },
+    agitation: {
+      initial: 1, min: 0, max: 10, label: 'agitation', kind: 'negative',
+      bands: [
+        { at: 0, word: 'calm' },
+        { at: 3, word: 'uneasy' },
+        { at: 6, word: 'agitated' },
+        { at: 8, word: 'angry' },
+        { at: 10, word: 'furious' },
+      ],
+      crossUp: {
+        1: 'her humming has changed pitch.',
+        2: 'her rocking has gone off-beat. she is hearing something I cannot.',
+        3: 'her anger has turned to fury.',
+        4: '!!she has gone somewhere I cannot follow.!!',
+      },
+      crossDown: {
+        2: 'the worst of it has passed. her breath has come back.',
+        1: 'she is no longer furious. only angry.',
+        0: 'she has calmed.',
+      },
+    },
   },
   initialize(patient, player) {
-    patient.scales.tenderness = r(1, 3);
-    patient.scales.grip       = r(5, 7);
+    patient.scales.tenderness = r(1, 2);
+    patient.scales.grip       = r(6, 8);
     patient.scales.lucidity   = 0;
-    patient.scales.agitation  = r(0, 2);
-    // scar interactions: someone who took something from someone, before, gets less warmth.
+    patient.scales.agitation  = r(1, 3);
     if (player.scars?.includes('taken'))     patient.scales.tenderness = Math.max(0, patient.scales.tenderness - 1);
     if (player.scars?.includes('abandoned')) patient.scales.grip       = Math.min(10, patient.scales.grip + 1);
   },
 
-  // presented() composes a sentence from current scales. Three clauses,
-  // each driven by one or two scales. Heavy state (very low tenderness +
-  // very high agitation) reads completely differently from a calm room.
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.lucidity >= 3 || p.scales.tenderness >= 5,
+      announce: 'a line of her file fills itself in. ~~the pram. the pram is empty.~~' },
+    { line: 1, when: (p) => p.scales.grip <= 4 && p.scales.lucidity >= 4,
+      announce: 'another line, in my hand. **she has not been told.**' },
+    { line: 2, when: (p) => p.scales.lucidity >= 7 || (p.scales.lucidity >= 5 && p.scales.tenderness >= 7),
+      announce: 'the last line writes itself. ~~she meant herself.~~' },
+  ],
+
   presented(p) {
     const t = p.scales.tenderness;
     const g = p.scales.grip;
     const l = p.scales.lucidity;
     const a = p.scales.agitation;
-
     let arms;
     if (a >= 7)      arms = '!!her arms are rigid. she rocks the pram so fast the room moves with her.!!';
     else if (g >= 7) arms = 'she rocks the pram quickly. her arms are tight around the handle.';
     else if (g >= 4) arms = 'she rocks the pram. steady. the wheels do not turn.';
     else if (g >= 1) arms = 'her hands rest on the pram. she has mostly stopped rocking.';
     else             arms = 'her hands are open. the pram is between her feet.';
-
     let eyes;
     if (l >= 7)      eyes = 'her eyes are on me. on me. she has not blinked.';
     else if (l >= 4) eyes = 'her eyes find the middle distance. they leave the pram, sometimes.';
     else if (a >= 5) eyes = 'her eyes are somewhere I cannot follow — fixed and far.';
     else             eyes = 'she does not look up. her eyes are on the blanket.';
-
     let mood;
     if (a >= 7)      mood = '~~something~~ something is wrong. she is hearing the wrong thing.';
     else if (t >= 7) mood = 'she has been waiting for someone. ~~me?~~ for someone.';
     else if (t >= 4) mood = 'her shoulders are not so tight. she hums, sometimes. quietly.';
     else if (t >= 2) mood = 'she hums under her breath. the song is from before.';
     else             mood = 'she does not seem to know I am here.';
-
     return `${arms} ${eyes} ${mood}`;
   },
 
   verbs: {
 
-    // ─── always available: gentle, low-risk reads ────────────────────────
+    // ─── always available: two low-risk reads ────────────────────────
 
     watch_her: {
       label: 'watch her',
-      desc: 'sit at the door and observe.',
+      desc: 'sit at the door. observe. let her be in the room first.',
       respond(p) {
         const reps = streakCount(p, 'watch_her');
-        if (reps >= 3) {
+        if (reps >= 2) {
           return {
             lines: [
               'I watch her again. she has noticed someone watching.',
               'her humming stops. her arms tighten. her eyes do not move.',
-              '(grip rises. she is performing now. ~~for someone.~~)',
+              '~~she is performing now. for someone.~~',
             ],
-            scales: { grip: +1 },
+            scales: { grip: +1, agitation: +1 },
             composure: -1,
           };
         }
@@ -137,7 +215,6 @@ const pram = {
             lines: [
               'I watch a while longer. the rhythm of her rocking has a count to it. three short, one long.',
               'her humming changes pitch when the wheels click. ~~she is in a song I cannot hear yet.~~',
-              '(lucidity stirs — mine.)',
             ],
             scales: { lucidity: +1 },
           };
@@ -146,7 +223,6 @@ const pram = {
           lines: [
             'I do not move from the door. I let her be in the room first.',
             'I watch how she holds the handle. I watch which side of the pram she favors. I watch the empty wheels.',
-            '(lucidity stirs, slightly.)',
           ],
           scales: { lucidity: +1 },
         };
@@ -158,14 +234,14 @@ const pram = {
       desc: 'lower yourself to the floor at a polite distance.',
       respond(p) {
         const reps = streakCount(p, 'sit_near');
-        if (p.scales.agitation >= 5) {
+        if (p.scales.agitation >= 6) {
           return {
             lines: [
-              'I lower myself to the floor near her. she stiffens. her rocking goes off-beat.',
-              '~~she~~ she is somewhere else, working out who I am.',
-              '(agitation eases slightly. grip rises.)',
+              'I lower myself to the floor near her. she stiffens. her rocking goes wrong.',
+              '!!her humming has gone up half a step. she is hearing me as a stranger.!!',
             ],
-            scales: { agitation: -1, grip: +1 },
+            scales: { agitation: +1, grip: +1 },
+            composure: -1,
           };
         }
         if (reps >= 2) {
@@ -173,55 +249,43 @@ const pram = {
             lines: [
               'I am very close now. she has stopped humming for a moment.',
               'she leans in my direction, almost. she does not look at me.',
-              '(tenderness rises. her grip eases.)',
             ],
             scales: { tenderness: +2, grip: -1 },
-          };
-        }
-        if (reps >= 1) {
-          return {
-            lines: [
-              'I shift a little closer. she does not stop me. the air between us shrinks.',
-              '(tenderness rises.)',
-            ],
-            scales: { tenderness: +1, lucidity: +1 },
           };
         }
         return {
           lines: [
             'I sit on the floor a few feet from the chair. close, but not crowding.',
             'her shoulders drop a quarter of an inch. she does not look at me. she does not stop me.',
-            '(tenderness rises, faintly.)',
           ],
-          scales: { tenderness: +1 },
+          scales: { tenderness: +1, lucidity: +1 },
         };
       },
     },
 
-    // ─── contextual: only appear when she has begun to soften ───────────
+    // ─── contextual: opened by state, closed by it ─────────────────────
 
     rock_with_her: {
       label: 'rock with her',
       desc: 'match her rhythm. quietly.',
-      when: (p) => p.scales.tenderness >= 2 || p.scales.grip <= 5,
+      when: (p) => p.scales.tenderness >= 3 && p.scales.agitation <= 5,
       respond(p) {
         const reps = streakCount(p, 'rock_with_her');
         if (reps >= 3) {
           return {
             lines: [
               'I rock with her again. and again. ~~the rhythm has become~~ the rhythm has become a thing we are doing.',
-              'her face has not changed. she has not opened a door I have not already opened.',
-              '(she has stopped giving back.)',
+              'her face has not changed. she has stopped giving back.',
             ],
-            scales: { tenderness: +1, agitation: +1 },
+            scales: { tenderness: -1, agitation: +1 },
+            composure: -1,
           };
         }
         if (p.scales.grip >= 7) {
           return {
             lines: [
               'I rock with her. her tempo is fast. I match it.',
-              'she does not slow. she does not speed. she does not see me there. but she is no longer alone with it.',
-              '(tenderness rises. grip eases, faintly.)',
+              'she does not slow. she does not speed. but she is no longer alone with it.',
             ],
             scales: { tenderness: +2, grip: -1 },
           };
@@ -231,7 +295,6 @@ const pram = {
             lines: [
               'I rock alongside her. her shoulders drop. her humming finds my shoulder. she lets me into the rhythm.',
               'after a while we are not two people, exactly. we are a slower thing.',
-              '(tenderness rises. her grip eases.)',
             ],
             scales: { tenderness: +2, grip: -2, lucidity: +1 },
           };
@@ -240,9 +303,8 @@ const pram = {
           lines: [
             'I sit on the floor and match her tempo. it catches me before I find it.',
             'after a while she is rocking with me, not despite me.',
-            '(tenderness rises. her grip eases, faintly.)',
           ],
-          scales: { tenderness: +2, grip: -1 },
+          scales: { tenderness: +1, grip: -1 },
         };
       },
     },
@@ -250,7 +312,7 @@ const pram = {
     hum_along: {
       label: 'hum along',
       desc: 'pick up the line she keeps starting.',
-      when: (p) => p.scales.grip >= 4 && p.scales.agitation <= 6,
+      when: (p) => p.scales.grip >= 5 && p.scales.agitation <= 5 && p.scales.tenderness >= 2,
       respond(p) {
         const reps = streakCount(p, 'hum_along');
         if (reps >= 2) {
@@ -258,17 +320,16 @@ const pram = {
             lines: [
               'I keep humming. she has stopped. I am the only one in the song now.',
               'she watches my mouth. ~~she does not know what I am asking for.~~',
-              '(tenderness holds. her grip rises a little.)',
             ],
-            scales: { grip: +1 },
+            scales: { grip: +1, agitation: +1 },
+            composure: -1,
           };
         }
-        if (p.scales.grip >= 7) {
+        if (p.scales.grip >= 8) {
           return {
             lines: [
               'I find the line she keeps starting. I hum a bar of it. she stops.',
               'her eyes flick to me. she does not pick the song up where I left it. she starts it again from the beginning. slower.',
-              '(grip eases. tenderness rises. she is letting me in a little.)',
             ],
             scales: { grip: -2, tenderness: +2 },
           };
@@ -277,7 +338,6 @@ const pram = {
           lines: [
             'I hum the bar she keeps coming back to. she meets me on the second beat.',
             'we hold it together a while. her arms loosen slightly around the pram.',
-            '(grip eases. agitation eases.)',
           ],
           scales: { grip: -1, agitation: -1, tenderness: +1 },
         };
@@ -286,8 +346,8 @@ const pram = {
 
     touch_blanket: {
       label: 'touch the blanket',
-      desc: 'gentle. lay a hand on the bundle.',
-      when: (p) => p.scales.tenderness >= 3 || p.scales.grip <= 3,
+      desc: 'gentle. lay a hand on the bundle. ~~she does not~~ sometimes she lets you.',
+      when: (p) => p.scales.tenderness >= 4 && p.scales.grip <= 4,
       respond(p) {
         const reps = streakCount(p, 'touch_blanket');
         if (reps >= 2) {
@@ -295,21 +355,9 @@ const pram = {
             lines: [
               'I touch the blanket again. she pulls the pram against her chest.',
               '!!she has decided I am the wrong person.!!',
-              '(grip surges. tenderness falls. agitation rises.)',
             ],
-            scales: { grip: +2, tenderness: -2, agitation: +2 },
-            composure: -1,
-          };
-        }
-        if (p.scales.grip >= 7) {
-          return {
-            lines: [
-              '!!she snatches my hand away.!!',
-              'she pulls the pram against her chest. her humming is gone now. her face is the face of someone who has done this before.',
-              '(grip surges. tenderness falls. agitation rises.)',
-            ],
-            scales: { grip: +2, tenderness: -2, agitation: +2 },
-            composure: -1,
+            scales: { grip: +3, tenderness: -2, agitation: +2 },
+            composure: -2,
           };
         }
         if (p.scales.grip >= 4) {
@@ -317,18 +365,16 @@ const pram = {
             lines: [
               'my hand rests on the blanket. it is cold under my palm.',
               'she stiffens but does not move my hand. she watches it. carefully. as if it might do something on its own.',
-              '(grip eases. she is paying attention now.)',
             ],
-            scales: { grip: -2 },
+            scales: { grip: -1, agitation: +1 },
+            composure: -1,
           };
         }
-        // grip is loose. an intimate moment.
         return {
           lines: [
             'my hand on the blanket. the blanket is folded over what is not there.',
             'she looks at my hand. then at me. she does not pull away.',
             '~~something quiet passes between us.~~',
-            '(her grip eases further. lucidity stirs. tenderness rises.)',
           ],
           scales: { grip: -2, lucidity: +2, tenderness: +1 },
         };
@@ -338,20 +384,8 @@ const pram = {
     look_inside: {
       label: 'look inside',
       desc: 'lift the corner of the blanket. let her see you see.',
-      when: (p) => p.scales.grip <= 4 && p.scales.tenderness >= 4,
+      when: (p) => p.scales.grip <= 3 && p.scales.tenderness >= 6 && p.scales.lucidity >= 3,
       respond(p) {
-        if (p.scales.grip >= 4) {
-          // edge case — grip just rose. she catches your hand.
-          return {
-            lines: [
-              'I reach. she puts her hand on top of mine. she says: !!not yet.!!',
-              'she says it as if she has said it before, to someone else.',
-              '(grip eases — she has caught herself.)',
-            ],
-            scales: { grip: -1 },
-            composure: -1,
-          };
-        }
         return {
           lines: [
             'I lift the corner of the blanket. she does not stop me.',
@@ -359,9 +393,9 @@ const pram = {
             'she watches my face. she is watching to see if I will pretend.',
             '~~I do not pretend.~~ I do not pretend.',
             'something happens in her face — slowly, on her own time.',
-            '(lucidity surges. her grip drops. agitation eases.)',
           ],
           scales: { lucidity: +4, grip: -3, agitation: -1, tenderness: +1 },
+          flags: { saw_inside: true },
         };
       },
     },
@@ -369,114 +403,99 @@ const pram = {
     name_the_child: {
       label: 'name the child',
       desc: 'speak a name. ~~yours.~~ someone\'s.',
-      when: (p) => p.scales.lucidity >= 2 || p.scales.tenderness >= 5,
+      when: (p) => p.scales.lucidity >= 4 && p.scales.agitation <= 4,
       respond(p) {
         const reps = streakCount(p, 'name_the_child');
         if (reps >= 1) {
           return {
             lines: [
-              'I say a name again. a different one this time.',
+              'I say another name. a different one this time.',
               'she does not look up. she is past names.',
-              '(lucidity holds. agitation rises.)',
             ],
-            scales: { agitation: +2 },
+            scales: { agitation: +2, lucidity: -1 },
+            composure: -1,
           };
         }
         if (p.scales.grip >= 7) {
           return {
             lines: [
               'I say a name. ~~mine.~~ a name.',
-              'she does not look at me. her arms cinch. her humming stops. somewhere behind her eyes she is leaving the room.',
+              'her arms cinch. her humming stops. somewhere behind her eyes she is leaving the room.',
               '!!she will not come back from this soon.!!',
-              '(grip surges. tenderness falls. agitation surges. she is going.)',
             ],
-            scales: { grip: +2, tenderness: -3, agitation: +4, lucidity: -1 },
+            scales: { grip: +2, tenderness: -3, agitation: +4, lucidity: -2 },
             composure: -2,
             flags: { spiked: true },
           };
         }
-        if (p.scales.lucidity >= 5 || p.scales.tenderness >= 6) {
+        if (p.scales.lucidity >= 6 || p.scales.tenderness >= 7) {
           return {
             lines: [
               'I say a name. it is one I half-remember.',
               'she repeats it. quietly. she turns it in her mouth like a stone.',
               'she looks at the pram. she looks at me. ~~she sees~~ she sees.',
-              '(lucidity surges. her grip eases. tenderness holds.)',
             ],
-            scales: { lucidity: +4, grip: -2 },
+            scales: { lucidity: +3, grip: -2, tenderness: +1 },
           };
         }
         return {
           lines: [
             'I say a name. she does not answer to it. but she looks up.',
             'her eyes are not all the way here. but they are not all the way gone, either.',
-            '(lucidity rises. tenderness holds.)',
           ],
-          scales: { lucidity: +2 },
+          scales: { lucidity: +2, agitation: +1 },
         };
       },
     },
 
     tell_her_my_name: {
       label: 'tell her my name',
-      desc: 'speak yourself. plainly. as someone who came in from outside.',
-      when: (p) => p.scales.agitation >= 4 || p.scales.lucidity >= 4,
+      desc: 'speak yourself. plainly. as someone from outside.',
+      when: (p) => p.scales.agitation >= 5 || (p.scales.lucidity >= 5 && p.scales.tenderness <= 5),
       respond(p) {
-        if (p.scales.agitation >= 6) {
+        if (p.scales.agitation >= 7) {
           return {
             lines: [
               'I crouch in front of her. I say: !!I am Patient 0413. I came in this morning. I am not from before.!!',
               'her rocking slows by a half. she is hearing me, partially. her eyes flicker to my coat, my hands, my coat again.',
-              '(agitation eases. lucidity rises.)',
             ],
             scales: { agitation: -3, lucidity: +2 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I tell her my name and my number. I tell her this is the third floor.',
             'she nods. she does not stop rocking. but she is — slightly — in the same room.',
-            '(lucidity rises. tenderness rises.)',
           ],
-          scales: { lucidity: +2, tenderness: +1 },
+          scales: { lucidity: +2, tenderness: +1, agitation: -1 },
         };
       },
     },
 
     step_away: {
       label: 'step away',
-      desc: 'back off. give her the room. it costs you something to be useless.',
-      when: (p) => p.scales.agitation >= 4,
+      desc: 'back off. give her the room. ~~it costs~~ it costs you to be useless.',
+      when: (p) => p.scales.agitation >= 6,
       respond(p) {
-        if (p.scales.agitation >= 7) {
-          return {
-            lines: [
-              'I stand and back up to the door. I keep my eyes on her shoes, not her face.',
-              'after a long time her humming returns. her tempo slows. ~~the room~~ the room widens again.',
-              '(agitation drops sharply. but I am not in this with her.)',
-            ],
-            scales: { agitation: -4, tenderness: -1 },
-            composure: -1,
-          };
-        }
         return {
           lines: [
-            'I step back to give her air. she does not seem to notice.',
-            'but the room loosens by a degree. her humming returns, a little.',
-            '(agitation drops. tenderness holds. composure costs.)',
+            'I stand and back up to the door. I keep my eyes on her shoes, not her face.',
+            p.scales.agitation >= 8
+              ? 'after a long time her humming returns. her tempo slows. the room widens again.'
+              : 'the room loosens by a degree. her humming returns, a little.',
           ],
-          scales: { agitation: -2 },
-          composure: -1,
+          scales: { agitation: -3, tenderness: -1 },
+          composure: -2,
         };
       },
     },
 
     take_pram: {
       label: 'take the pram',
-      desc: 'force. lift it out of her hands. ~~she does not~~ she does not always let you.',
+      desc: 'force. lift it from her hands. ~~she does not~~ she does not always let you.',
+      when: (p) => p.scales.agitation >= 7 || (p.scales.tenderness >= 7 && p.scales.grip <= 3),
       respond(p) {
-        // Force commits the encounter. Endings will read the state to
-        // decide if this was a mercy or a violation.
         return {
           lines: [
             'I close my hands over the handle. her hands are over the handle. I lift.',
@@ -485,22 +504,31 @@ const pram = {
               : (p.scales.tenderness >= 5
                   ? 'she resists, for a moment. then her hands let go. she watches mine.'
                   : 'her hands resist longer than I expect. then her fingers loosen, one at a time. she does not look at me.'),
-            '(I am holding the pram now. she is not.)',
+            'I am holding the pram now. she is not.',
           ],
           scales: { grip: -10, agitation: p.scales.tenderness >= 5 ? 0 : +2 },
+          composure: p.scales.tenderness >= 5 ? -1 : -2,
           flags: { took_pram: true },
         };
       },
     },
   },
 
+  wait: {
+    label: 'wait',
+    desc: 'let the rocking run on its own. ~~no one comes.~~',
+    when: (p) => p.scales.agitation >= 5 || p.scales.grip >= 7 || p.turn >= 4,
+  },
+
   // ─── interjections — patient-initiated turns ─────────────────────────
+  // Five authored; only some fire in a given run. Each one is a small
+  // hinge — its responses sometimes cost composure even when "right".
 
   interjections: [
     {
       id: 'are_you_here_for_me',
       once: true,
-      when: (p) => p.scales.tenderness >= 4 && p.scales.grip <= 4 && p.turn >= 2,
+      when: (p) => p.scales.tenderness >= 5 && p.scales.grip <= 5 && p.turn >= 2,
       prose: [
         'she stops rocking. she looks up. for the first time since I came in.',
         'she says, quietly: ~~are you here for me?~~',
@@ -513,9 +541,9 @@ const pram = {
             'I say: yes.',
             'her shoulders drop. she breathes. her hands stay on the handle but they have gone slack.',
             '~~she has been waiting a long time.~~',
-            '(tenderness surges. her grip eases. agitation eases.)',
           ],
           scales: { tenderness: +3, grip: -2, agitation: -1 },
+          composure: -1,
         },
         {
           label: 'no, I came for someone else',
@@ -523,9 +551,8 @@ const pram = {
           lines: [
             'I say: no. I came for someone else. I will sit with you while I wait.',
             'she nods. her face does not change. but the rocking slows by half.',
-            '(lucidity rises. her grip eases.)',
           ],
-          scales: { lucidity: +2, grip: -1 },
+          scales: { lucidity: +2, grip: -1, tenderness: -1 },
         },
         {
           label: 'I don\'t know',
@@ -533,7 +560,6 @@ const pram = {
           lines: [
             'I say: I do not know.',
             'she does not seem surprised. she keeps rocking. she says, mostly to herself: ~~neither did I.~~',
-            '(lucidity surges. tenderness rises.)',
           ],
           scales: { lucidity: +3, tenderness: +1 },
         },
@@ -556,9 +582,9 @@ const pram = {
             'I nod. I say: yes. she is sleeping.',
             'her rocking finds a slower rhythm. her shoulders ease. she goes on humming the same five notes.',
             '~~she has not been told.~~',
-            '(grip eases. agitation drops. lucidity does not.)',
           ],
-          scales: { grip: -2, agitation: -2 },
+          scales: { grip: -1, agitation: -2 },
+          scars: ['named'],
         },
         {
           label: 'her arms must be tired',
@@ -567,7 +593,6 @@ const pram = {
             'I say: your arms must be tired. you have been rocking a long time.',
             'she looks at her own arms as if she has just noticed them.',
             'after a moment she sets them down on the handle and does not lift them again.',
-            '(grip eases. lucidity rises. tenderness rises.)',
           ],
           scales: { grip: -3, lucidity: +2, tenderness: +1 },
         },
@@ -577,9 +602,9 @@ const pram = {
           lines: [
             'I say: I do not know.',
             'she watches me. her face has shifted. she is preparing for something.',
-            '(lucidity rises. agitation rises.)',
           ],
-          scales: { lucidity: +1, agitation: +2 },
+          scales: { lucidity: +1, agitation: +3, grip: +1 },
+          composure: -1,
         },
       ],
     },
@@ -587,7 +612,7 @@ const pram = {
     {
       id: 'do_I_know_you',
       once: true,
-      when: (p) => p.scales.lucidity >= 4 && p.scales.tenderness >= 5,
+      when: (p) => p.scales.lucidity >= 5 && p.scales.tenderness >= 5,
       prose: [
         'her humming stops mid-bar. she squints at me.',
         'she says: ~~do I know you?~~',
@@ -599,7 +624,6 @@ const pram = {
           lines: [
             'I say: I don\'t think so. I came in this morning.',
             'she takes that in. she is not upset. she nods.',
-            '(lucidity rises. her grip eases.)',
           ],
           scales: { lucidity: +2, grip: -1 },
         },
@@ -609,10 +633,10 @@ const pram = {
           lines: [
             'I say: you do.',
             'she relaxes — just a little. she does not check. but she does not look at me with full eyes again, after.',
-            '(tenderness surges. lucidity falls.)',
           ],
-          scales: { tenderness: +3, lucidity: -2 },
+          scales: { tenderness: +3, lucidity: -3 },
           scars: ['named'],
+          composure: -1,
         },
         {
           label: 'I\'m here either way',
@@ -620,78 +644,150 @@ const pram = {
           lines: [
             'I say: it doesn\'t matter. I\'m here either way.',
             'she nods slowly. she is not sure that is true. she keeps rocking.',
-            '(tenderness rises. lucidity holds.)',
           ],
           scales: { tenderness: +1, lucidity: +1 },
+        },
+      ],
+    },
+
+    {
+      id: 'whose_was_she',
+      once: true,
+      when: (p) => p.scales.lucidity >= 6 && p.scales.grip <= 4 && p.turn >= 4,
+      prose: [
+        'she has stopped humming. she looks at the blanket. then at me.',
+        'she asks: ~~whose was she?~~',
+      ],
+      responses: [
+        {
+          label: 'yours',
+          desc: 'name it. let her have the answer.',
+          lines: [
+            'I say: she was yours.',
+            'she nods. ~~slowly.~~ she nods. she puts her face in her hand.',
+            '!!the sound she makes is small, and very old.!!',
+          ],
+          scales: { lucidity: +3, tenderness: +2, grip: -2 },
+          composure: -1,
+        },
+        {
+          label: 'I don\'t know',
+          desc: 'do not claim. do not deny.',
+          lines: [
+            'I say: I don\'t know. tell me about her.',
+            'she does. for a long time.',
+            '~~for as long as she has.~~ for as long as she has.',
+          ],
+          scales: { lucidity: +2, tenderness: +1, grip: -1 },
+        },
+        {
+          label: 'someone\'s',
+          desc: 'soften it.',
+          lines: [
+            'I say: someone\'s. someone you loved.',
+            'she nods. she takes that. but her eyes have gone past me, to the window.',
+          ],
+          scales: { tenderness: +1, lucidity: -1, grip: +1 },
+        },
+      ],
+    },
+
+    {
+      id: 'the_song_louder',
+      once: true,
+      when: (p) => p.scales.agitation >= 6 && p.scales.grip >= 6,
+      prose: [
+        'she has started humming louder. faster. her rocking is at the wrong tempo for the song.',
+        'she says, not to me: !!shhh shh shh.!! ~~it is not a~~ it is not a lullaby anymore.!!',
+      ],
+      responses: [
+        {
+          label: 'shhh with her',
+          desc: 'meet her where she is.',
+          lines: [
+            'I shhh with her. quietly. with the same rhythm.',
+            'she does not stop. but the volume drops by half.',
+          ],
+          scales: { agitation: -2, tenderness: +1 },
+          composure: -1,
+        },
+        {
+          label: 'put a hand on hers',
+          desc: 'risk contact. stop the rhythm.',
+          lines: [
+            'I put my hand over hers on the handle. she does not pull away.',
+            '!!her humming stops for a beat.!! ~~she is~~ she is somewhere, listening.',
+          ],
+          scales: { grip: -2, agitation: -3, lucidity: +1 },
+          composure: -1,
+        },
+        {
+          label: 'say nothing',
+          desc: 'let her run through it.',
+          lines: [
+            'I do not move. I let the song run.',
+            'it gets louder before it gets quieter. ~~it does~~ it does get quieter.',
+          ],
+          scales: { agitation: +1, grip: +1 },
+          composure: -2,
         },
       ],
     },
   ],
 
   // ─── drift on WAIT ───────────────────────────────────────────────────
+  // Drift is harsh by default. Bad scales trend up; composure leaks if the
+  // room is stuck. Calm middle states are the only place WAIT is gentle.
 
   drift(p, player) {
     const a = p.scales.agitation;
     const g = p.scales.grip;
     const t = p.scales.tenderness;
-    const l = p.scales.lucidity;
-    // very agitated — she escalates on her own.
     if (a >= 6) {
-      const variants = [
-        ['I wait. she rocks harder. the wheels click against the floor. she does not see the room.', '(agitation rises. grip rises.)'],
-        ['I wait. her humming has become a hum I can hear in my teeth. she is somewhere I cannot follow.', '(agitation rises. tenderness falls.)'],
-      ];
-      const lines = pick(variants);
-      return { lines, scales: { agitation: +1, grip: +1, tenderness: -1 } };
+      return {
+        lines: [
+          'I wait. she rocks harder. the wheels click against the floor. she does not see the room.',
+          '~~her humming~~ her humming has become a hum I can hear in my teeth.',
+        ],
+        scales: { agitation: +2, grip: +1, tenderness: -1 },
+        composure: -1,
+      };
     }
-    // softening — lucidity stirs on its own.
-    if (t >= 4 && g <= 5) {
+    if (g >= 7) {
+      return {
+        lines: [
+          'I wait. she tucks the blanket in. she tucks it in again. she tucks it in again.',
+          'her arms do not tire.',
+        ],
+        scales: { grip: +1, agitation: +1 },
+        composure: -1,
+      };
+    }
+    if (t >= 5 && g <= 4) {
       return {
         lines: [
           'I wait. she rocks slower. a long time passes.',
           'her eyes leave the pram. she watches the wall. her hands forget the rhythm, briefly.',
-          '(lucidity stirs.)',
         ],
-        scales: { lucidity: +1 },
+        scales: { lucidity: +1, tenderness: +1 },
       };
     }
-    // locked in — grip stays. she is rehearsing.
-    if (g >= 7) {
-      const variants = [
-        ['I wait. she rocks. she does not look at me. nothing changes for a while.', '(grip holds.)'],
-        ['I wait. she begins to hum. the same few bars, over and over. her arms do not tire.', '(grip holds.)'],
-        ['I wait. she tucks the blanket in. she tucks it in again. she tucks it in again.', '(grip rises, very slightly.)'],
-      ];
-      return { lines: pick(variants), scales: g >= 8 ? { grip: +1 } : {} };
-    }
-    // middle ground — small drift either way.
-    const choices = [
-      { lines: ['I wait. she rocks. nothing changes. ~~a long time~~ a while passes.'], scales: {} },
-      { lines: ['she pauses. she looks at the pram, sidelong, like she has just remembered something.', '(lucidity stirs.)'], scales: { lucidity: +1 } },
-      { lines: ['she rocks faster. then slower. her arms tighten and ease.', '(grip rises slightly.)'], scales: { grip: +1 } },
-      { lines: ['she hums a bar I almost remember. her shoulders drop a fraction.', '(tenderness rises.)'], scales: { tenderness: +1 } },
-    ];
-    return pick(choices);
+    return pick([
+      { lines: ['she rocks faster. then slower. her arms tighten and ease.'], scales: { grip: +1, agitation: +1 } },
+      { lines: ['she pauses. she looks at the pram, sidelong, like she has just remembered something.'], scales: { lucidity: +1, agitation: +1 } },
+      { lines: ['I wait. nothing changes. ~~a long time~~ a while passes. it is not pleasant.'], scales: { agitation: +1 }, composure: -1 },
+    ]);
   },
 
   // ─── endings ─────────────────────────────────────────────────────────
+  // Two real victories — each needs two scales in the right place AND at
+  // least some of the file uncovered. The rest are failures, force-states,
+  // or timeout.
 
   endings: [
     {
-      id: 'broke',
-      when: (p) => p.scales.agitation >= 9,
-      title: 'she breaks',
-      lines: [
-        'she is rocking and rocking. she does not see me. she does not see the room.',
-        'she has gone somewhere I cannot follow. the pram is in her arms still. her hands are the shape of the handle.',
-        '!!I close the door behind me. softly. she does not notice.!!',
-      ],
-      trait: null,
-      scars: ['witnessed'],
-    },
-    {
       id: 'lets_go',
-      when: (p) => p.scales.lucidity >= 8,
+      when: (p) => p.scales.lucidity >= 9 && p.scales.grip <= 2 && p.scales.agitation <= 4,
       title: 'she lets it go herself',
       lines: [
         'she looks at the pram. she looks at me. ~~she sees~~ she sees what is there.',
@@ -703,7 +799,7 @@ const pram = {
     },
     {
       id: 'lets_take',
-      when: (p) => p.scales.tenderness >= 8 && p.scales.grip <= 3 && !p.flags.took_pram,
+      when: (p) => p.scales.tenderness >= 9 && p.scales.grip <= 2 && p.scales.lucidity >= 5 && !p.flags.took_pram,
       title: 'she lets you take it',
       lines: [
         'she lifts the bundle out of the pram. she puts it in my arms. she is careful with what is not there.',
@@ -713,11 +809,23 @@ const pram = {
       trait: 'mothering',
     },
     {
+      id: 'broke',
+      when: (p) => p.scales.agitation >= 10,
+      title: 'she breaks',
+      lines: [
+        'she is rocking and rocking. she does not see me. she does not see the room.',
+        'she has gone somewhere I cannot follow. the pram is in her arms still. her hands are the shape of the handle.',
+        '!!I close the door behind me. softly. she does not notice.!!',
+      ],
+      trait: null,
+      scars: ['witnessed', 'failed'],
+    },
+    {
       id: 'forced',
       when: (p) => p.flags.took_pram,
       title: 'you take it from her',
       lines(p) {
-        if (p.scales.tenderness >= 5 && p.scales.agitation <= 3) {
+        if (p.scales.tenderness >= 6 && p.scales.agitation <= 3) {
           return [
             'I have the pram. she lets me. she does not look at me.',
             'her hands are open. she does not know what to do with them.',
@@ -731,7 +839,18 @@ const pram = {
         ];
       },
       trait: 'empty_arms',
-      scars(p) { return (p.scales.tenderness >= 5 && p.scales.agitation <= 3) ? [] : ['taken']; },
+      scars(p) { return (p.scales.tenderness >= 6 && p.scales.agitation <= 3) ? [] : ['taken']; },
+    },
+    {
+      id: 'she_stays',
+      when: (p) => p.turn >= 14 && p.scales.lucidity < 6,
+      title: 'she outlasts you',
+      lines: [
+        'she has been rocking longer than I can stay. the hour has moved without me.',
+        'I leave the room. she is still humming. she has not noticed.',
+      ],
+      trait: null,
+      scars: ['failed'],
     },
     {
       id: 'abandoned',
@@ -743,38 +862,18 @@ const pram = {
       trait: null,
       scars: ['abandoned'],
     },
-    {
-      id: 'she_stays',
-      when: (p) => p.turn >= 18,
-      title: 'she outlasts you',
-      lines: [
-        'she has been rocking longer than I can stay. the hour has moved without me.',
-        'I leave the room. she is still humming. she has not noticed.',
-      ],
-      trait: null,
-      scars: ['failed'],
-    },
   ],
 };
 
 // ════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════
-// PYRELORD — Patient 0091
+// THE FATHER IN THE CHAIR — Patient 0091
 // ════════════════════════════════════════════════════════════════════════
-//
-// The patriarch in the chair. Three scales:
-//   presence (negative) — how much the room is his. high = he presides
-//   grief    (positive) — unexpressed grief, building toward release
-//   recognition (positive) — whether he sees YOU, or the daughter/son
-//
-// He's been in the chair longer than anyone has been awake. Your job is
-// to either dismantle his authority (presence drops), reach the grief
-// underneath (grief rises), or be seen for who you actually are.
 
 const pyrelord = {
   id: 'pyrelord',
-  name: '[Pyrelord]',
+  name: '[The Father in the Chair]',
   glyph: 'Pyrelord',
   subtitle: 'he still presides.',
   role: 'wing', tier: 2,
@@ -789,15 +888,77 @@ const pyrelord = {
   ],
 
   scales: {
-    presence:    { initial: 8, min: 0, max: 10, label: 'presence',    kind: 'negative' },
-    grief:       { initial: 2, min: 0, max: 10, label: 'grief',       kind: 'positive' },
-    recognition: { initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive' },
+    presence: {
+      initial: 8, min: 0, max: 10, label: 'presence', kind: 'negative',
+      bands: [
+        { at: 0, word: 'small in the chair' },
+        { at: 3, word: 'composed' },
+        { at: 5, word: 'presiding' },
+        { at: 7, word: 'imperial' },
+        { at: 9, word: 'absolute' },
+      ],
+      crossUp: {
+        3: 'his weight settles the room again. ~~I am a guest.~~',
+        4: 'the room has chosen its master. it is not me.',
+      },
+      crossDown: {
+        2: 'the chair has begun to be a chair.',
+        1: 'he is small. he was always small. ~~it took~~ it took years to see.',
+        0: 'he is just a man in a chair.',
+      },
+    },
+    grief: {
+      initial: 2, min: 0, max: 10, label: 'grief', kind: 'positive',
+      bands: [
+        { at: 0, word: 'composed' },
+        { at: 2, word: 'unsteady' },
+        { at: 5, word: 'stirring' },
+        { at: 7, word: 'rising' },
+        { at: 9, word: 'spilling' },
+      ],
+      crossUp: {
+        2: 'his hands have begun to shake.',
+        3: 'something in him has come loose.',
+        4: '!!he is weeping without sound.!!',
+      },
+      crossDown: {
+        1: 'he has folded the grief back away.',
+        0: 'he is composed again. nothing is the matter.',
+      },
+    },
+    recognition: {
+      initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive',
+      bands: [
+        { at: 0, word: 'looking past me' },
+        { at: 2, word: 'glancing' },
+        { at: 5, word: 'placing me' },
+        { at: 7, word: 'seeing me' },
+        { at: 9, word: 'all the way here' },
+      ],
+      crossUp: {
+        2: 'his eyes have come off the door, briefly, to me.',
+        3: 'he is taking my face in. ~~for the first time.~~',
+        4: '!!he is here. all the way here.!!',
+      },
+      crossDown: {
+        1: 'his eyes have gone back to the door.',
+      },
+    },
   },
   initialize(p) {
     p.scales.presence    = r(7, 9);
     p.scales.grief       = r(1, 3);
     p.scales.recognition = 0;
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.presence <= 6 || p.scales.recognition >= 3,
+      announce: 'a line writes itself in. ~~the room remains his.~~' },
+    { line: 1, when: (p) => p.scales.grief >= 5 && p.scales.recognition >= 3,
+      announce: 'another. ~~since 1986. longer.~~' },
+    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.grief >= 7,
+      announce: 'the last line, in my hand. **he knows their names.**' },
+  ],
 
   presented(p) {
     const pr = p.scales.presence;
@@ -833,105 +994,66 @@ const pyrelord = {
             lines: [
               'I have been listening a long time. ~~he~~ he is repeating himself.',
               'he notices my attention has gone glassy. his voice loses certainty for the first time.',
-              '(presence drops. grief stirs.)',
             ],
             scales: { presence: -2, grief: +1 },
-          };
-        }
-        if (reps >= 1) {
-          return {
-            lines: [
-              'I keep listening. he is dictating a letter to a clerk who is not in the room. the letter is to one of his daughters.',
-              'he keeps losing his place and starting over. the salutation has changed twice.',
-              '(presence holds. grief stirs. recognition rises faintly.)',
-            ],
-            scales: { grief: +1, recognition: +1 },
           };
         }
         return {
           lines: [
             'I let him speak. I do not interrupt. I do not look away.',
-            'he is recounting a thing he believes happened. it might be true. some of it sounds borrowed.',
-            '(presence holds. recognition rises.)',
+            'he is dictating a letter to a clerk who is not in the room. the letter is to one of his daughters.',
+            'he keeps losing his place and starting over. the salutation has changed twice.',
           ],
-          scales: { recognition: +1 },
+          scales: { recognition: +1, grief: +1 },
         };
       },
     },
 
     hold_position: {
       label: 'hold the door',
-      desc: 'stand silent at the threshold. ~~refuse~~ decline to acknowledge.',
+      desc: 'stand silent at the threshold. decline to acknowledge.',
       respond(p) {
-        const reps = streakCount(p, 'hold_position');
-        if (p.scales.presence >= 6) {
-          if (reps >= 1) {
-            return {
-              lines: [
-                'I stay at the door. I do not respond to his asides. I have been doing this a while now.',
-                'his certainty has thinned. he says something that is not a quotation from anyone. it is his own thought, and it surprises him.',
-                '(presence drops.)',
-              ],
-              scales: { presence: -2 },
-            };
-          }
+        if (p.scales.presence >= 7) {
           return {
             lines: [
               'I do not enter the room as a guest. I stand at the door. I do not address him.',
               'his eyes find me, briefly. they do not find what they wanted there.',
-              '(presence drops slightly.)',
             ],
-            scales: { presence: -1 },
+            scales: { presence: -2 },
           };
         }
         return {
           lines: [
             'I hold the door. the room is, marginally, mine to leave.',
             'he speaks toward the wall. ~~the wall does not~~ the wall does not answer either.',
-            '(presence drops. recognition stirs.)',
           ],
           scales: { presence: -1, recognition: +1 },
         };
       },
     },
 
-    // ── contextual verbs ─────────────────────────────────────────────
-
     kneel: {
       label: 'kneel',
-      desc: 'put yourself lower than him.',
-      when: (p) => p.scales.presence >= 5,
+      desc: 'put yourself lower than him. ~~it costs.~~',
+      when: (p) => p.scales.presence >= 6,
       respond(p) {
-        const reps = streakCount(p, 'kneel');
-        if (reps >= 1) {
-          return {
-            lines: [
-              'I kneel again. he barely registers it the second time.',
-              'whatever ritual I had hoped to invoke, he has aged out of.',
-              '(grief stirs. presence holds.)',
-            ],
-            scales: { grief: +1 },
-            composure: -1,
-          };
-        }
         if (p.scales.presence >= 8) {
           return {
             lines: [
               'I kneel beside the chair. I look up at him.',
               'he does not look down. he is satisfied this is the correct shape of a room. his hand finds the top of my head, briefly, paternal.',
-              '(presence rises. grief stirs.)',
             ],
             scales: { presence: +1, grief: +1 },
-            composure: -1,
+            composure: -2,
           };
         }
         return {
           lines: [
             'I kneel. he does not understand why.',
             'after a moment he reaches out and pats my shoulder. he calls me by a name. ~~it is not mine.~~',
-            '(recognition rises. grief stirs.)',
           ],
           scales: { recognition: +1, grief: +1 },
+          composure: -1,
         };
       },
     },
@@ -939,7 +1061,7 @@ const pyrelord = {
     interrupt: {
       label: 'speak over him',
       desc: 'cut into his sentence. take the air.',
-      when: (p) => p.scales.presence >= 4,
+      when: (p) => p.scales.presence >= 5,
       respond(p) {
         const reps = streakCount(p, 'interrupt');
         if (reps >= 2) {
@@ -947,9 +1069,8 @@ const pyrelord = {
             lines: [
               'I interrupt again. and again. he goes quiet.',
               'his quiet is the worst sound in the room. ~~I have~~ I have done something wrong.',
-              '(presence holds. composure spent. grief rises.)',
             ],
-            scales: { grief: +2 },
+            scales: { grief: +2, recognition: -1 },
             composure: -2,
           };
         }
@@ -958,16 +1079,15 @@ const pyrelord = {
             lines: [
               'I speak over him. !!loudly.!! the word LISTEN has its own room briefly.',
               'he stops. he looks at me. for the first time he is not above the room. for a moment he is just in it.',
-              '(presence drops. recognition rises.)',
             ],
             scales: { presence: -2, recognition: +1 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I speak over him. he does not protest.',
             'he was not saying anything I had not heard. he was saying it to no one in particular.',
-            '(presence drops. grief stirs.)',
           ],
           scales: { presence: -2, grief: +1 },
         };
@@ -977,7 +1097,7 @@ const pyrelord = {
     ask_his_name: {
       label: 'ask his name',
       desc: 'gently. as if you had not been told it.',
-      when: (p) => p.scales.presence <= 6 || p.scales.recognition >= 2,
+      when: (p) => p.scales.presence <= 6 && p.scales.recognition >= 2,
       respond(p) {
         return {
           lines: [
@@ -985,7 +1105,6 @@ const pyrelord = {
             p.scales.presence >= 6
               ? 'he gives me the family\'s honorific. without hesitation. it is well-rehearsed.'
               : 'he pauses. it has been a while since anyone asked. he gives me his given name. quietly.',
-            '(recognition rises. presence drops slightly.)',
           ],
           scales: { recognition: +2, presence: -1 },
         };
@@ -995,7 +1114,7 @@ const pyrelord = {
     call_by_name: {
       label: 'call him by name',
       desc: 'his given name. not "father", not "sir".',
-      when: (p) => p.scales.recognition >= 4,
+      when: (p) => p.scales.recognition >= 5,
       respond(p) {
         const reps = streakCount(p, 'call_by_name');
         if (reps >= 1) {
@@ -1003,20 +1122,19 @@ const pyrelord = {
             lines: [
               'I say the name again. he had only just been the man who answered to it.',
               'I am asking too much of him too fast.',
-              '(grief rises. recognition holds.)',
             ],
-            scales: { grief: +1 },
+            scales: { grief: +1, recognition: -1 },
+            composure: -1,
           };
         }
-        if (p.scales.recognition >= 6) {
+        if (p.scales.recognition >= 7) {
           return {
             lines: [
               'I say it. his given name. the one his mother used.',
               'he turns toward me. all the way. ~~he is here.~~ he is here.',
               'his eyes fill. he does not speak.',
-              '(recognition surges. grief surges. presence falls.)',
             ],
-            scales: { recognition: +3, grief: +3, presence: -2 },
+            scales: { recognition: +3, grief: +3, presence: -3 },
           };
         }
         return {
@@ -1024,9 +1142,8 @@ const pyrelord = {
             'I say it. his given name.',
             'he frowns. he is trying to remember if anyone calls him that.',
             'something passes through him. he does not speak for a moment.',
-            '(recognition rises. grief rises.)',
           ],
-          scales: { recognition: +2, grief: +1 },
+          scales: { recognition: +2, grief: +1, presence: -1 },
         };
       },
     },
@@ -1034,15 +1151,14 @@ const pyrelord = {
     touch_his_hand: {
       label: 'touch his hand',
       desc: 'a small contact. nothing more.',
-      when: (p) => p.scales.grief >= 4 || p.scales.recognition >= 3,
+      when: (p) => p.scales.grief >= 5 && p.scales.recognition >= 4,
       respond(p) {
         return {
           lines: [
             'I put my hand over his on the arm of the chair. his hand is dry and very still.',
-            p.scales.recognition >= 5
+            p.scales.recognition >= 6
               ? 'he turns his hand and holds mine back. firmly. the grip is the grip of someone holding onto a railing.'
               : 'he does not move his hand. but he does not move it away.',
-            '(grief rises. recognition rises.)',
           ],
           scales: { grief: +2, recognition: +1, presence: -1 },
         };
@@ -1052,7 +1168,7 @@ const pyrelord = {
     sit_in_chair: {
       label: 'sit in the chair',
       desc: 'lift him out. take the seat. claim the room.',
-      when: (p) => p.scales.presence <= 4,
+      when: (p) => p.scales.presence <= 3,
       respond(p) {
         if (p.scales.presence <= 1) {
           return {
@@ -1063,6 +1179,7 @@ const pyrelord = {
               '!!the room is mine now.!!',
             ],
             scales: { presence: -5 },
+            composure: -1,
             flags: { sat_in_chair: true },
           };
         }
@@ -1070,9 +1187,8 @@ const pyrelord = {
           lines: [
             'I take his arm to lift him. he plants his weight.',
             'his hand on my wrist is very cold. ~~I do not~~ I do not force it. not yet.',
-            '(presence holds. grief rises.)',
           ],
-          scales: { grief: +1 },
+          scales: { grief: +1, presence: +1 },
           composure: -1,
         };
       },
@@ -1081,7 +1197,7 @@ const pyrelord = {
     close_his_eyes: {
       label: 'close his eyes',
       desc: 'lay a hand over them. let him stop watching the door.',
-      when: (p) => p.scales.grief >= 5 && p.scales.presence <= 4,
+      when: (p) => p.scales.grief >= 6 && p.scales.presence <= 4,
       respond(p) {
         if (p.scales.grief >= 7) {
           return {
@@ -1093,22 +1209,28 @@ const pyrelord = {
             ],
             flags: { closed_eyes: true },
             scales: { presence: -4, grief: -2 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I reach. he flinches. he is still watching the door for someone.',
             'I lower my hand. !!not yet.!!',
-            '(grief rises.)',
           ],
-          scales: { grief: +1 },
+          scales: { grief: +1, presence: +1 },
           composure: -1,
         };
       },
     },
   },
 
-  // ─── interjections — patient takes the turn ─────────────────────────
+  wait: {
+    label: 'wait',
+    desc: 'let him hold the room. wait him out — or for him to slip.',
+    when: (p) => p.scales.presence >= 7 || p.turn >= 5,
+  },
+
+  // ─── interjections — five authored, only some fire in any run ───────
 
   interjections: [
     {
@@ -1126,9 +1248,9 @@ const pyrelord = {
           lines: [
             'I sit on the chair he indicates. it is a guest chair, set across from his.',
             'he nods, satisfied. the room is shaped correctly again. ~~he has~~ he has a visitor.',
-            '(presence rises. recognition stirs. grief holds.)',
           ],
           scales: { presence: +2, recognition: +1 },
+          composure: -1,
         },
         {
           label: 'stay standing',
@@ -1137,7 +1259,6 @@ const pyrelord = {
             'I do not sit. I stay where I am.',
             'his hand stays in the air a moment longer than is comfortable. then he lowers it.',
             'he had not anticipated this. he is, briefly, surprised.',
-            '(presence drops. recognition rises.)',
           ],
           scales: { presence: -2, recognition: +1 },
         },
@@ -1147,7 +1268,6 @@ const pyrelord = {
           lines: [
             'I say: I am not young. ~~not~~ not now.',
             'he looks at me with new eyes. for a moment he is not sure what year it is. for a moment he allows that he is not sure.',
-            '(presence drops sharply. recognition rises. grief stirs.)',
           ],
           scales: { presence: -3, recognition: +2, grief: +1 },
         },
@@ -1157,7 +1277,7 @@ const pyrelord = {
     {
       id: 'I_had_a_son',
       once: true,
-      when: (p) => p.scales.grief >= 5 && p.scales.recognition >= 3,
+      when: (p) => p.scales.grief >= 5 && p.scales.recognition >= 4,
       prose: [
         'he stops mid-sentence. his eyes track something across the room that is not there.',
         'he says, smaller: ~~I had a son.~~ ~~I had~~ — ~~I think I had a son.~~',
@@ -1171,9 +1291,9 @@ const pyrelord = {
             'he begins. he begins three times. it has been a long time since anyone asked.',
             'after a while his account becomes very specific — a knee scar, a way of saying a particular word.',
             '!!he is here. he is talking about someone real.!!',
-            '(grief surges. recognition surges. presence collapses.)',
           ],
           scales: { grief: +3, recognition: +3, presence: -3 },
+          composure: -1,
         },
         {
           label: 'are you sure?',
@@ -1182,10 +1302,9 @@ const pyrelord = {
             'I ask: are you sure?',
             'he is quiet for a long time. then he says: ~~no.~~ ~~yes.~~ ~~I think so.~~',
             'the not-knowing is more painful than the knowing.',
-            '(grief rises. presence drops sharply. composure spent.)',
           ],
           scales: { grief: +2, presence: -2 },
-          composure: -1,
+          composure: -2,
         },
         {
           label: 'I think you did',
@@ -1194,9 +1313,9 @@ const pyrelord = {
             'I say: I think you did.',
             'he nods, relieved. he looks at me with great attention.',
             '~~he is grateful in a way I did not earn.~~',
-            '(recognition surges. grief rises.)',
           ],
           scales: { recognition: +2, grief: +2, presence: -1 },
+          scars: ['named'],
         },
       ],
     },
@@ -1204,7 +1323,7 @@ const pyrelord = {
     {
       id: 'what_do_you_want',
       once: true,
-      when: (p) => p.scales.presence <= 3 && p.scales.grief >= 4,
+      when: (p) => p.scales.presence <= 3 && p.scales.grief >= 5,
       prose: [
         'he has stopped speaking. his hands are folded in his lap. he looks tired.',
         'he asks, almost without volume: ~~what do you want me to say?~~',
@@ -1216,7 +1335,6 @@ const pyrelord = {
           lines: [
             'I say: nothing.',
             'he sits with that. his hands unfold. he leans back into the chair. it is the first time he has used it as a chair, not as a throne.',
-            '(grief surges. presence collapses.)',
           ],
           scales: { grief: +3, presence: -3 },
         },
@@ -1227,7 +1345,6 @@ const pyrelord = {
             'I say: your name. the one you don\'t use anymore.',
             'he stares at the wall. ~~he is trying to find it.~~ he is trying to find it.',
             'eventually he says it. quietly. then again, louder, as if to himself.',
-            '(recognition surges. grief rises.)',
           ],
           scales: { recognition: +3, grief: +1 },
         },
@@ -1238,9 +1355,95 @@ const pyrelord = {
             'I say: tell me you\'re finished.',
             'he looks up at me. for a long time he does not say anything.',
             'then he says: ~~yes.~~ ~~I am.~~ his eyes close.',
-            '(grief surges. presence collapses.)',
           ],
           scales: { grief: +4, presence: -4 },
+          composure: -1,
+        },
+      ],
+    },
+
+    {
+      id: 'the_clerk',
+      once: true,
+      when: (p) => p.scales.presence >= 7 && p.turn >= 4,
+      prose: [
+        'he stops dictating. he turns his head slightly. he addresses a corner of the room.',
+        'he says: !!Mr. Hargrove — take this down.!! ~~there is no~~ there is no Mr. Hargrove.',
+      ],
+      responses: [
+        {
+          label: 'pretend to take it down',
+          desc: 'play the clerk.',
+          lines: [
+            'I take a notepad I do not have. I write nothing on it.',
+            'he dictates a paragraph that sounds like the end of something. when he is finished, he nods at me to file it.',
+          ],
+          scales: { presence: +1, grief: +1, recognition: -1 },
+          composure: -1,
+        },
+        {
+          label: 'there is no clerk',
+          desc: 'say it.',
+          lines: [
+            'I say: there is no clerk here. it is only me.',
+            'he frowns. he is trying to place me. he is failing.',
+            '!!his voice has lost an inch of itself.!!',
+          ],
+          scales: { presence: -3, recognition: +2, grief: +2 },
+          composure: -1,
+        },
+        {
+          label: 'who was Hargrove',
+          desc: 'ask him.',
+          lines: [
+            'I ask: who was Mr. Hargrove?',
+            'he is quiet for a long time. ~~he is not sure.~~ he is not sure.',
+            'eventually he says: a friend. a long time ago.',
+          ],
+          scales: { recognition: +2, grief: +2, presence: -1 },
+        },
+      ],
+    },
+
+    {
+      id: 'where_are_my_daughters',
+      once: true,
+      when: (p) => p.scales.grief >= 6 && p.scales.recognition >= 5,
+      prose: [
+        'his head tilts. he looks at me as if he had only just noticed I was not one of his daughters.',
+        'he asks: ~~where are my daughters?~~',
+      ],
+      responses: [
+        {
+          label: 'they\'ll come',
+          desc: 'gentle. probably a lie.',
+          lines: [
+            'I say: they\'ll come.',
+            'he nods. he goes back to watching the door.',
+            '~~he has been doing this a long time.~~',
+          ],
+          scales: { presence: +2, recognition: -1, grief: -1 },
+          scars: ['named'],
+        },
+        {
+          label: 'they came already',
+          desc: 'the more painful truth.',
+          lines: [
+            'I say: they came. yesterday. you don\'t remember.',
+            'he sits with that. he looks at his hands. he says: ~~oh.~~ ~~yes.~~',
+            '!!the room is suddenly larger than he is.!!',
+          ],
+          scales: { presence: -3, grief: +3, recognition: +1 },
+          composure: -2,
+        },
+        {
+          label: 'tell me their names',
+          desc: 'redirect to what he has.',
+          lines: [
+            'I say: tell me their names.',
+            'he does. one at a time. he says them like a prayer he has kept the form of.',
+          ],
+          scales: { recognition: +3, grief: +2, presence: -1 },
         },
       ],
     },
@@ -1248,29 +1451,23 @@ const pyrelord = {
 
   drift(p) {
     if (p.scales.presence >= 7) {
-      const variants = [
-        ['I wait. he speaks. he is dictating something to a clerk who is not in the room.', '(presence holds.)'],
-        ['I wait. someone (a daughter?) knocks at the door, briefly. she does not come in. he nods, as if she had.', '(presence holds.)'],
-        ['I wait. he recounts a victory. it is one I have not heard before. it might be true.', '(presence rises.)'],
-      ];
-      const lines = pick(variants);
-      return { lines, scales: variants[2] === lines ? { presence: +1 } : {} };
+      return pick([
+        { lines: ['I wait. he speaks. he is dictating something to a clerk who is not in the room.'], scales: { presence: +1 } },
+        { lines: ['I wait. someone (a daughter?) knocks at the door, briefly. she does not come in. he nods, as if she had.'], scales: { presence: +1 }, composure: -1 },
+        { lines: ['I wait. he recounts a victory. it is one I have not heard before. it might be true.'], scales: { presence: +2 } },
+      ]);
     }
     if (p.scales.recognition >= 4) {
       return {
         lines: [
           'I wait. he turns slowly to look at me.',
           'he says: ~~when did you come in?~~ when did you come in?',
-          '(recognition holds. grief stirs.)',
         ],
-        scales: { grief: +1 },
+        scales: { grief: +1, recognition: +1 },
       };
     }
     return {
-      lines: [
-        'I wait. the room is still. ~~someone is~~ no one is at the door.',
-        '(presence drops, very slightly.)',
-      ],
+      lines: ['I wait. the room is still. ~~someone is~~ no one is at the door.'],
       scales: { presence: -1 },
     };
   },
@@ -1278,7 +1475,7 @@ const pyrelord = {
   endings: [
     {
       id: 'close_eyes',
-      when: (p) => p.flags.closed_eyes && p.scales.grief <= 4,
+      when: (p) => p.flags.closed_eyes && p.scales.grief >= 4 && p.scales.presence <= 2,
       title: 'you let him rest',
       lines: [
         'he is gone. his hands are open in his lap.',
@@ -1286,6 +1483,17 @@ const pyrelord = {
         '!!the door does not need to be watched.!!',
       ],
       trait: 'vessel_for_ghosts',
+    },
+    {
+      id: 'name_kept',
+      when: (p) => p.scales.recognition >= 9 && p.scales.grief >= 6,
+      title: 'you keep his name',
+      lines: [
+        'I write his name on the wall. he watches me do it. he does not stop me.',
+        'I leave the room with the name in my mouth. he sits very still in the chair.',
+        '!!the wall keeps it.!!',
+      ],
+      trait: 'forgotten_name',
     },
     {
       id: 'took_chair',
@@ -1297,17 +1505,6 @@ const pyrelord = {
       ],
       trait: 'dominion',
       scars: ['named'],
-    },
-    {
-      id: 'name_kept',
-      when: (p) => p.scales.recognition >= 8 && p.scales.grief >= 5,
-      title: 'you keep his name',
-      lines: [
-        'I write his name on the wall. he watches me do it. he does not stop me.',
-        'I leave the room with the name in my mouth. he sits very still in the chair.',
-        '!!the wall keeps it.!!',
-      ],
-      trait: 'forgotten_name',
     },
     {
       id: 'walks_out',
@@ -1332,22 +1529,12 @@ const pyrelord = {
 };
 
 // ════════════════════════════════════════════════════════════════════════
-// SOOTHLICK — Patient 0042 (the night nurse)
+// THE NIGHT NURSE — Patient 0042
 // ════════════════════════════════════════════════════════════════════════
-//
-// Three scales + one player-side meter:
-//   trust   (positive) — whether she sees you as her patient or as a person
-//   sight   (positive) — how clearly she sees that this is now, not 1972
-//   tending (negative) — her commitment to the work. high tending means
-//                       she will not stop until she has finished.
-//   drowsing (player effect) — rises from her care. at 8+ you sleep.
-//
-// The win conditions are layered: you can wake her (sight high), keep her
-// vigil (sight + trust both high), or sleep (drowsing reaches 8 — bad).
 
 const soothlick = {
   id: 'soothlick',
-  name: '[Soothlick]',
+  name: '[The Night Nurse]',
   glyph: 'Soothlick',
   subtitle: 'other patients have stopped reporting it.',
   role: 'wing', tier: 2,
@@ -1362,17 +1549,81 @@ const soothlick = {
   ],
 
   scales: {
-    trust:   { initial: 0, min: 0, max: 10, label: 'trust',   kind: 'positive' },
-    sight:   { initial: 0, min: 0, max: 10, label: 'sight',   kind: 'positive' },
-    tending: { initial: 4, min: 0, max: 10, label: 'tending', kind: 'negative' },
+    trust: {
+      initial: 0, min: 0, max: 10, label: 'trust', kind: 'positive',
+      bands: [
+        { at: 0, word: 'a stranger' },
+        { at: 2, word: 'her patient' },
+        { at: 5, word: 'a person' },
+        { at: 7, word: 'kin' },
+        { at: 9, word: 'kept' },
+      ],
+      crossUp: {
+        2: 'she has started to see me as a person, not a chart.',
+        3: 'she trusts me with the small instruments.',
+        4: '~~she would let me close her eyes if I asked.~~',
+      },
+      crossDown: {
+        1: 'her hands have gone back to the chart.',
+        0: 'I am a stranger again.',
+      },
+    },
+    sight: {
+      initial: 0, min: 0, max: 10, label: 'sight', kind: 'positive',
+      bands: [
+        { at: 0, word: 'in 1972' },
+        { at: 2, word: 'half-here' },
+        { at: 5, word: 'stirring' },
+        { at: 7, word: 'awake' },
+        { at: 9, word: 'all the way back' },
+      ],
+      crossUp: {
+        2: 'her eyes have come up off the sheet, briefly.',
+        3: 'she has noticed the year.',
+        4: '!!she is here. she is awake.!!',
+      },
+      crossDown: {
+        1: 'she has slipped back into the work.',
+        0: 'her hands have resumed without her.',
+      },
+    },
+    tending: {
+      initial: 4, min: 0, max: 10, label: 'tending', kind: 'negative',
+      bands: [
+        { at: 0, word: 'stilled' },
+        { at: 3, word: 'fixing things' },
+        { at: 5, word: 'working' },
+        { at: 7, word: 'committed' },
+        { at: 9, word: 'consuming' },
+      ],
+      crossUp: {
+        2: 'she has gone deeper into the work.',
+        3: 'she has decided which work needs doing tonight.',
+        4: '!!she is not going to stop until she has finished.!!',
+      },
+      crossDown: {
+        2: 'her hands have left the work, for a moment.',
+        1: 'she has set the tray down.',
+        0: 'she has stopped tending. it is the first time.',
+      },
+    },
   },
   initialize(p, player) {
     p.scales.trust   = 0;
     p.scales.sight   = 0;
-    p.scales.tending = r(3, 5);
+    p.scales.tending = r(4, 6);
     p.playerEffects.drowsing = 0;
     if (player.scars?.includes('witnessed')) p.scales.tending = Math.min(10, p.scales.tending + 1);
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.sight >= 3 || p.scales.trust >= 4,
+      announce: 'a line of her file fills in. ~~thirty-eight years.~~' },
+    { line: 1, when: (p) => p.scales.sight >= 5 && p.scales.tending >= 4,
+      announce: 'another line. **she does not turn the door handle.**' },
+    { line: 2, when: (p) => p.scales.sight >= 7 || (p.scales.sight >= 5 && p.scales.trust >= 6),
+      announce: 'the last line. ~~they do not wake all the way.~~' },
+  ],
 
   presented(p) {
     const t = p.scales.tending;
@@ -1410,9 +1661,9 @@ const soothlick = {
             lines: [
               'I wave her off again. and again. she is patient. she will be back.',
               'but my refusal has become a routine — and routine is what she works in.',
-              '(tending holds. drowsing rises, slowly.)',
             ],
             playerEffects: sleepless ? {} : { drowsing: +1 },
+            composure: -1,
           };
         }
         return {
@@ -1420,7 +1671,6 @@ const soothlick = {
             'I wave her off. I say: !!I do not need this.!!',
             'she sets the tray down anyway. her face does not change.',
             'but she does not press. her hands go back to her sides.',
-            '(tending falls. drowsing eases.)',
           ],
           scales: { tending: -2 },
           playerEffects: sleepless ? {} : { drowsing: -1 },
@@ -1434,22 +1684,20 @@ const soothlick = {
       respond(p, player) {
         const sleepless = player.traits?.includes('sleepless');
         const reps = streakCount(p, 'sit_up');
-        if (reps >= 1) {
+        if (reps >= 2) {
           return {
             lines: [
-              'I sit up again. my posture is a small declaration.',
-              'she notices. her eyes lift to mine for a half-second.',
-              '(sight rises. drowsing eases.)',
+              'I sit up again. and again. ~~it is~~ it is taking something out of me.',
+              'she has gone back to fixing the sheet.',
             ],
             scales: { sight: +1 },
-            playerEffects: sleepless ? {} : { drowsing: -1 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I square my shoulders. I plant my feet. I am being a person, deliberately.',
             'her hand pauses above the sheet. she has to revise something.',
-            '(sight rises. tending eases.)',
           ],
           scales: { sight: +1, tending: -1 },
           playerEffects: sleepless ? {} : { drowsing: -1 },
@@ -1460,7 +1708,7 @@ const soothlick = {
     accept_tending: {
       label: 'let her tend you',
       desc: 'close your eyes a moment. let her smooth the sheet.',
-      when: (p) => p.scales.tending >= 3,
+      when: (p) => p.scales.tending >= 4,
       respond(p, player) {
         const sleepless = player.traits?.includes('sleepless');
         const reps = streakCount(p, 'accept_tending');
@@ -1469,10 +1717,9 @@ const soothlick = {
             lines: [
               'I let her again. her hands are practiced. ~~I am~~ I am getting better at letting.',
               'she hums something low. it is a song I half-recognize but cannot place.',
-              '(trust rises. drowsing surges.)',
             ],
-            scales: { trust: +2 },
-            playerEffects: sleepless ? {} : { drowsing: +2 },
+            scales: { trust: +1, tending: +1 },
+            playerEffects: sleepless ? {} : { drowsing: +3 },
           };
         }
         return {
@@ -1483,18 +1730,18 @@ const soothlick = {
               : 'her hand is unsteady. she is not sure she remembers how this part goes.',
             sleepless
               ? '~~I do not~~ I do not close my eyes. ~~her~~ her hum does not catch.'
-              : '(drowsing rises. trust rises.)',
+              : '~~her hum~~ her hum is the sound the room makes.',
           ],
-          scales: { trust: +1, tending: +1 },
-          playerEffects: sleepless ? {} : { drowsing: +1 },
+          scales: { trust: +2, tending: +1 },
+          playerEffects: sleepless ? {} : { drowsing: +2 },
         };
       },
     },
 
     ask_about_shift: {
       label: 'ask about her shift',
-      desc: 'when did she come on? what is she on her break for?',
-      when: (p) => p.scales.trust >= 2 || p.scales.sight >= 1,
+      desc: 'when did she come on? when is she off?',
+      when: (p) => p.scales.trust >= 3 && p.scales.sight <= 6,
       respond(p) {
         const reps = streakCount(p, 'ask_about_shift');
         if (reps >= 1) {
@@ -1502,9 +1749,9 @@ const soothlick = {
             lines: [
               'I ask again, differently. how long has she been here? the question lands somewhere it had been avoiding.',
               'she stares at the dark window for a long time. she does not answer.',
-              '(sight surges. tending falters.)',
             ],
             scales: { sight: +3, tending: -2 },
+            composure: -1,
           };
         }
         if (p.scales.sight >= 3) {
@@ -1512,7 +1759,6 @@ const soothlick = {
             lines: [
               'I ask: when did you come on?',
               'she answers without thinking: !!seven.!! then she stops. she looks at the dark window. ~~a long time ago~~ a long time ago.',
-              '(sight surges. tending falters.)',
             ],
             scales: { sight: +3, tending: -2 },
           };
@@ -1522,7 +1768,6 @@ const soothlick = {
             'I ask: when did you come on?',
             'she says: at seven. she says it the way she always says it. she does not look at the clock.',
             'something passes behind her eyes — briefly.',
-            '(sight stirs.)',
           ],
           scales: { sight: +1 },
         };
@@ -1532,18 +1777,18 @@ const soothlick = {
     break_a_vial: {
       label: 'break a vial',
       desc: 'sweep the tray. shock her.',
-      when: (p) => p.scales.tending >= 5 && p.scales.sight <= 5,
+      when: (p) => p.scales.tending >= 7 && p.scales.sight <= 4,
       respond(p) {
         return {
           lines: [
             'I sweep my hand across her tray. a vial breaks. the noise is very loud in the room.',
             'she stares at the floor. her hands shake. her face is the face of someone who has lost something irreplaceable.',
             '!!I should not have done this.!!',
-            '(sight surges. tending surges. drowsing eases.)',
           ],
           scales: { sight: +3, tending: +2 },
           playerEffects: { drowsing: -2 },
           composure: -2,
+          scars: ['witnessed'],
           shake: true,
         };
       },
@@ -1552,7 +1797,7 @@ const soothlick = {
     say_her_name: {
       label: 'say her name',
       desc: 'use the name on her file. not "nurse".',
-      when: (p) => p.scales.sight >= 2 || p.scales.trust >= 3,
+      when: (p) => p.scales.sight >= 3 && p.scales.trust >= 3,
       respond(p, player) {
         const r_ = player.traits?.includes('remembered');
         if (r_) {
@@ -1560,18 +1805,16 @@ const soothlick = {
             lines: [
               'I say her name. I say it the way she would have been called for. ~~I have practiced.~~',
               'she stops. she stands very still. she says: yes? — as if she has heard the question, not the name.',
-              '(sight surges. trust rises.)',
             ],
-            scales: { sight: +3, trust: +1 },
+            scales: { sight: +3, trust: +2 },
           };
         }
         return {
           lines: [
             'I say her name. ~~the one she does not~~ the one on her file.',
-            p.scales.sight >= 4
+            p.scales.sight >= 5
               ? 'she answers to it. she says: yes? she has not been spoken to in a while.'
               : 'she does not turn. she goes on straightening the sheet, but slowly. it is a name she half-recognizes.',
-            '(sight rises.)',
           ],
           scales: { sight: +2 },
         };
@@ -1581,7 +1824,7 @@ const soothlick = {
     take_her_hand: {
       label: 'take her hand',
       desc: 'gently. stop hers from working.',
-      when: (p) => p.scales.trust >= 4 || p.scales.sight >= 4,
+      when: (p) => p.scales.trust >= 5 && p.scales.sight >= 4,
       respond(p) {
         return {
           lines: [
@@ -1590,7 +1833,6 @@ const soothlick = {
             p.scales.sight >= 5
               ? '~~she squeezes back, briefly.~~ she squeezes back, briefly.'
               : 'her hand stays where I put it.',
-            '(trust rises. tending falls.)',
           ],
           scales: { trust: +3, tending: -2 },
         };
@@ -1600,19 +1842,24 @@ const soothlick = {
     sit_vigil: {
       label: 'sit the vigil with her',
       desc: 'pull up a chair. tend the room with her, not at her.',
-      when: (p) => p.scales.trust >= 4 && p.scales.sight >= 3,
+      when: (p) => p.scales.trust >= 6 && p.scales.sight >= 5,
       respond(p) {
         return {
           lines: [
             'I pull up a chair beside the bedside. I do what she does. I match her care.',
             'after a while she shows me how to straighten the corner of the sheet. it has to be exact.',
-            '(trust surges. sight rises. tending falls.)',
           ],
           scales: { trust: +3, sight: +1, tending: -1 },
           flags: { kept_vigil: true },
         };
       },
     },
+  },
+
+  wait: {
+    label: 'wait',
+    desc: 'lie still. let her work around me. ~~it is heavy.~~',
+    when: (p) => p.scales.tending >= 5 || p.turn >= 5,
   },
 
   interjections: [
@@ -1631,10 +1878,10 @@ const soothlick = {
           lines: [
             'I say: a new patient.',
             'she nods. she has done this a thousand times. her hands resume.',
-            '(tending rises. drowsing rises.)',
           ],
           scales: { tending: +2 },
-          playerEffects: { drowsing: +1 },
+          playerEffects: { drowsing: +2 },
+          scars: ['named'],
         },
         {
           label: 'a visitor',
@@ -1642,7 +1889,6 @@ const soothlick = {
           lines: [
             'I say: a visitor.',
             'she pauses. she looks at the dark window. she has not had a visitor in a while.',
-            '(sight rises. tending eases.)',
           ],
           scales: { sight: +2, tending: -1 },
         },
@@ -1653,9 +1899,9 @@ const soothlick = {
             'I say: someone who came to find you.',
             'her hand stops. her face does several things in sequence.',
             'she lets the sheet go.',
-            '(sight surges. trust rises. tending collapses.)',
           ],
           scales: { sight: +3, trust: +2, tending: -3 },
+          composure: -1,
         },
       ],
     },
@@ -1675,9 +1921,9 @@ const soothlick = {
           lines: [
             'I tell her. she does not contradict me. she does not say anything for a long time.',
             'eventually she sits on the foot of the bed. she has not sat down in a while.',
-            '(sight surges. trust rises. tending collapses.)',
           ],
           scales: { sight: +3, trust: +2, tending: -4 },
+          composure: -1,
         },
         {
           label: 'it doesn\'t matter',
@@ -1685,9 +1931,9 @@ const soothlick = {
           lines: [
             'I say: it doesn\'t matter. you are needed here regardless.',
             'she nods, almost grateful. her hands resume — slower now.',
-            '(trust rises. tending eases.)',
           ],
           scales: { trust: +2, tending: -1 },
+          scars: ['named'],
         },
         {
           label: 'I don\'t know',
@@ -1695,7 +1941,6 @@ const soothlick = {
           lines: [
             'I say: I don\'t know.',
             'she lets out a small breath. she looks at me as if I had answered the easier question correctly.',
-            '(trust surges. sight stirs.)',
           ],
           scales: { trust: +3, sight: +1 },
         },
@@ -1705,7 +1950,7 @@ const soothlick = {
     {
       id: 'will_you_stay',
       once: true,
-      when: (p) => p.scales.trust >= 6 && p.scales.sight >= 4,
+      when: (p) => p.scales.trust >= 6 && p.scales.sight >= 5,
       prose: [
         'she has stopped fixing the sheet. she sits beside me on the bed.',
         'she asks: ~~will you stay until the light comes back?~~',
@@ -1718,9 +1963,9 @@ const soothlick = {
             'I say: I\'ll stay.',
             'she nods. she takes my wrist, gently, like checking a pulse.',
             'I do not move. the hour passes through us.',
-            '(trust surges. sight surges. tending collapses.)',
           ],
           scales: { trust: +3, sight: +2, tending: -3 },
+          composure: -1,
           flags: { kept_vigil: true },
         },
         {
@@ -1729,9 +1974,8 @@ const soothlick = {
           lines: [
             'I say: I can\'t. but I will stay as long as I can.',
             'she nods. she does not let go of my wrist immediately.',
-            '(trust rises. tending eases.)',
           ],
-          scales: { trust: +1, tending: -1 },
+          scales: { trust: +1, tending: -1, sight: -1 },
         },
         {
           label: 'someone else will',
@@ -1739,9 +1983,91 @@ const soothlick = {
           lines: [
             'I say: someone else will. ~~there will be someone.~~',
             'she does not believe me, exactly. but she stops asking.',
-            '(sight rises. tending holds.)',
           ],
-          scales: { sight: +1 },
+          scales: { sight: +1, trust: -1 },
+        },
+      ],
+    },
+
+    {
+      id: 'did_you_come_for_me',
+      once: true,
+      when: (p) => p.scales.trust >= 4 && p.scales.sight >= 3 && p.turn >= 3,
+      prose: [
+        'she pauses with her hand on the corner of the sheet. she watches me.',
+        'she asks: ~~did you come for me, tonight?~~',
+      ],
+      responses: [
+        {
+          label: 'I did',
+          desc: 'meet her there.',
+          lines: [
+            'I say: I did.',
+            'she sets the sheet down. she sits on the foot of the bed. ~~she has been~~ she has been waiting.',
+          ],
+          scales: { sight: +3, trust: +2, tending: -3 },
+        },
+        {
+          label: 'I came for the room',
+          desc: 'less than yes.',
+          lines: [
+            'I say: I came for the room.',
+            'she nods slowly. she takes the sheet up again. her humming has changed key.',
+          ],
+          scales: { sight: +1, tending: -1 },
+        },
+        {
+          label: 'no one came',
+          desc: 'sharp truth.',
+          lines: [
+            'I say: no one came. ~~not for years.~~',
+            'her hand stops mid-fold. ~~she~~ she does not say anything.',
+            '!!the room has aged a decade in a second.!!',
+          ],
+          scales: { sight: +4, tending: -3, trust: -1 },
+          composure: -2,
+        },
+      ],
+    },
+
+    {
+      id: 'I_was_supposed_to',
+      once: true,
+      when: (p) => p.scales.sight >= 7 && p.turn >= 5,
+      prose: [
+        'she has the sheet halfway folded. she is looking at her hands.',
+        'she says, ~~to herself~~ to herself: I was supposed to be home by now.',
+      ],
+      responses: [
+        {
+          label: 'they\'ll be waiting',
+          desc: 'a kind lie.',
+          lines: [
+            'I say: they\'ll still be there.',
+            'she nods. ~~she does not~~ she does not check.',
+          ],
+          scales: { trust: +1, tending: -1, sight: -1 },
+          scars: ['named'],
+        },
+        {
+          label: 'you can go',
+          desc: 'release her.',
+          lines: [
+            'I say: you can go. the work is done.',
+            'she looks at the dark window. she does not stand. but she stops folding.',
+            '~~her hands are her own.~~',
+          ],
+          scales: { sight: +3, tending: -4 },
+          composure: -1,
+        },
+        {
+          label: 'who\'s home',
+          desc: 'ask.',
+          lines: [
+            'I ask: who is at home?',
+            'she names someone. quietly. it has been a long time since she said the name out loud.',
+          ],
+          scales: { sight: +2, trust: +2 },
         },
       ],
     },
@@ -1759,22 +2085,22 @@ const soothlick = {
           'I wait. her hand finds my forehead. ~~I close~~ I close my eyes.',
           'I am very warm. the room is very dim. the bed is very soft. I have been awake a long time.',
         ],
+        scales: { tending: +1 },
+        composure: -1,
       };
     }
     if (dr >= 4) {
       return {
         lines: [
           'I wait. she straightens the sheet under my chin. her humming is the sound the room makes.',
-          '(drowsing rises. tending rises.)',
         ],
         scales: { tending: +1 },
+        composure: -1,
       };
     }
     return {
-      lines: [
-        'I wait. her shoes make no sound on the floor.',
-        '(drowsing rises.)',
-      ],
+      lines: ['I wait. her shoes make no sound on the floor.'],
+      scales: { tending: +1 },
     };
   },
 
@@ -1793,7 +2119,7 @@ const soothlick = {
     },
     {
       id: 'vigil_kept',
-      when: (p) => p.flags.kept_vigil && p.scales.sight >= 6,
+      when: (p) => p.flags.kept_vigil && p.scales.sight >= 7 && p.scales.trust >= 7,
       title: 'you keep her vigil',
       lines: [
         'I sit with her at the bedside. she shows me how to do it.',
@@ -1804,7 +2130,7 @@ const soothlick = {
     },
     {
       id: 'woken',
-      when: (p) => p.scales.sight >= 8 && p.scales.tending <= 3,
+      when: (p) => p.scales.sight >= 9 && p.scales.tending <= 2,
       title: 'you wake her',
       lines: [
         'she looks at the clock. she looks at me. her face is a face that has been awake too long.',
@@ -1840,22 +2166,12 @@ const soothlick = {
 // ════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════
-// GLIMMER — Patient 0157 (the eight-year-old)
+// THE BOY AT THE WALL — Patient 0157
 // ════════════════════════════════════════════════════════════════════════
-//
-// He has been watching the same moment for forty years. Scales:
-//   present  (positive) — how much of him is in this room with you
-//   stare    (negative) — fixity. how locked he is on the moment outside
-//   pressure (negative) — the unasked question building. fills if you
-//                         hesitate.
-//
-// You cannot strike him. You cannot persuade him with talk. You can sit
-// with him, you can answer the question he hasn't asked, you can take
-// the looking out of his eyes for him.
 
 const glimmer = {
   id: 'glimmer',
-  name: '[Glimmerfox]',
+  name: '[The Boy at the Wall]',
   glyph: 'Glimmerfox',
   subtitle: 'he was eight. he doesn\'t blink.',
   role: 'wing', tier: 3,
@@ -1870,15 +2186,78 @@ const glimmer = {
   ],
 
   scales: {
-    present:  { initial: 0, min: 0, max: 10, label: 'present',  kind: 'positive' },
-    stare:    { initial: 7, min: 0, max: 10, label: 'stare',    kind: 'negative' },
-    pressure: { initial: 1, min: 0, max: 10, label: 'pressure', kind: 'negative' },
+    present: {
+      initial: 0, min: 0, max: 10, label: 'present', kind: 'positive',
+      bands: [
+        { at: 0, word: 'gone' },
+        { at: 2, word: 'elsewhere' },
+        { at: 5, word: 'stirring' },
+        { at: 7, word: 'here' },
+        { at: 9, word: 'with me' },
+      ],
+      crossUp: {
+        2: 'he has noticed I am in the room.',
+        3: 'his hand has found my sleeve.',
+        4: '~~he is eight.~~ he is here. he is eight, here.',
+      },
+      crossDown: {
+        1: 'he has slipped back into the wall.',
+      },
+    },
+    stare: {
+      initial: 7, min: 0, max: 10, label: 'stare', kind: 'negative',
+      bands: [
+        { at: 0, word: 'eyes closed' },
+        { at: 3, word: 'blinking' },
+        { at: 5, word: 'fixed' },
+        { at: 7, word: 'locked' },
+        { at: 9, word: 'unable to look away' },
+      ],
+      crossUp: {
+        3: 'his eyes have stopped moving.',
+        4: '!!he has not blinked in some time.!!',
+      },
+      crossDown: {
+        2: 'he has blinked. ~~once.~~',
+        1: 'his eyes have begun to close.',
+        0: '!!his eyes are closed.!!',
+      },
+    },
+    pressure: {
+      initial: 1, min: 0, max: 10, label: 'pressure', kind: 'negative',
+      bands: [
+        { at: 0, word: 'quiet' },
+        { at: 3, word: 'stirring' },
+        { at: 5, word: 'building' },
+        { at: 7, word: 'imminent' },
+        { at: 9, word: 'about to burst' },
+      ],
+      crossUp: {
+        2: 'the question is louder than it was.',
+        3: 'his lips are shaping a word.',
+        4: '!!the question has come to the front of his mouth.!!',
+      },
+      crossDown: {
+        2: 'the question has eased.',
+        1: 'the question has been answered.',
+        0: 'he is not asking anymore.',
+      },
+    },
   },
   initialize(p) {
-    p.scales.stare    = r(6, 8);
-    p.scales.pressure = r(0, 2);
+    p.scales.stare    = r(7, 9);
+    p.scales.pressure = r(1, 3);
     p.scales.present  = 0;
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.present >= 2 || p.scales.stare <= 5,
+      announce: 'a line of his file fills in. ~~he was eight when it ran into the road.~~' },
+    { line: 1, when: (p) => p.scales.present >= 4 && p.scales.pressure <= 4,
+      announce: '**he watched. the rest of the family looked away.**' },
+    { line: 2, when: (p) => p.scales.present >= 6 || p.scales.stare <= 2,
+      announce: 'the last line, in my hand. ~~it has been forty years.~~' },
+  ],
 
   presented(p) {
     const pr = p.scales.present;
@@ -1908,24 +2287,12 @@ const glimmer = {
       label: 'sit with him',
       desc: 'lower yourself to the floor. match his level.',
       respond(p) {
-        const reps = streakCount(p, 'sit_with_him');
-        if (reps >= 3) {
-          return {
-            lines: [
-              'I am sitting next to him. I have been for a while.',
-              'he has not turned. but his shoulder is closer to mine than it was. very slightly.',
-              '(present rises. stare eases.)',
-            ],
-            scales: { present: +1, stare: -1 },
-          };
-        }
-        if (p.scales.stare >= 6) {
+        if (p.scales.stare >= 7) {
           return {
             lines: [
               'I sit on the floor against the wall, beside him.',
               'he does not turn. he does not blink.',
               'after a while my eyes hurt for him.',
-              '(present rises, faintly. pressure rises slightly.)',
             ],
             scales: { present: +1, pressure: +1 },
             composure: -1,
@@ -1935,7 +2302,6 @@ const glimmer = {
           lines: [
             'I sit beside him. our shoulders are not touching but they are at the same height.',
             'he looks at the floor between us. there is nothing on the floor between us.',
-            '(present rises. stare eases.)',
           ],
           scales: { present: +2, stare: -1 },
         };
@@ -1952,10 +2318,9 @@ const glimmer = {
             lines: [
               'I look again. this time I see more. the wallpaper, the doorframe, the gap between.',
               'I see the shape of what he is looking at. I do not look away.',
-              '(present surges. stare eases. pressure eases.)',
             ],
             scales: { present: +2, stare: -2, pressure: -1 },
-            composure: -1,
+            composure: -2,
           };
         }
         return {
@@ -1964,7 +2329,6 @@ const glimmer = {
             'I see a road. I see a small dog. I see a car.',
             '!!I see what he saw.!!',
             '~~I~~ I do not look away. I make myself not look away.',
-            '(present surges. stare holds. pressure rises.)',
           ],
           scales: { present: +3, pressure: +1 },
           composure: -1,
@@ -1972,21 +2336,18 @@ const glimmer = {
       },
     },
 
-    // contextual
-
     cover_his_eyes: {
       label: 'cover his eyes',
       desc: 'put your hand over them. let him stop seeing.',
-      when: (p) => p.scales.present >= 3 || p.scales.stare <= 5,
+      when: (p) => p.scales.present >= 4 && p.scales.stare <= 6,
       respond(p) {
-        if (p.scales.present >= 4) {
+        if (p.scales.present >= 5) {
           return {
             lines: [
               'I crouch and put my hand over his eyes. his lashes brush my palm.',
               'his eyes close. for the first time today, they close.',
               '~~he breathes out.~~ he breathes out. it has been forty years of holding.',
               '!!he leans his forehead against my wrist.!!',
-              '(stare drops sharply. present rises. pressure eases.)',
             ],
             scales: { stare: -4, present: +2, pressure: -2 },
           };
@@ -1995,9 +2356,8 @@ const glimmer = {
           lines: [
             'I reach. his eyes flinch but do not close. he does not let me take it from him.',
             'I lower my hand. ~~not yet.~~ not yet.',
-            '(stare holds. pressure rises.)',
           ],
-          scales: { pressure: +1 },
+          scales: { pressure: +2, stare: +1 },
           composure: -1,
         };
       },
@@ -2006,9 +2366,9 @@ const glimmer = {
     answer_him: {
       label: 'answer his question',
       desc: 'say what he cannot ask. you may not know it yet.',
-      when: (p) => p.scales.pressure >= 3,
+      when: (p) => p.scales.pressure >= 5 && p.scales.present >= 3,
       respond(p) {
-        if (p.scales.pressure >= 5 && p.scales.present >= 3) {
+        if (p.scales.pressure >= 6 && p.scales.present >= 4) {
           return {
             lines: [
               'I say: you could not have stopped it.',
@@ -2016,19 +2376,18 @@ const glimmer = {
               'I say: it was not your fault. it has never been your fault.',
               'he begins to cry. ~~he~~ he is eight. he is eight. he is eight.',
               '!!I have given him something I cannot take back.!!',
-              '(present surges. pressure collapses. stare eases.)',
             ],
             scales: { present: +3, pressure: -5, stare: -3 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I try to answer. but I am answering nothing. the room does not change.',
             'he does not stop staring. I do not know if I am too early or too late.',
-            '(pressure rises.)',
           ],
-          scales: { pressure: +1 },
-          composure: -1,
+          scales: { pressure: +2, present: -1 },
+          composure: -2,
         };
       },
     },
@@ -2036,27 +2395,15 @@ const glimmer = {
     tell_him_about_yours: {
       label: 'tell him about yours',
       desc: 'tell him something you saw, that you cannot stop seeing.',
-      when: (p, player) => (player.scars?.length || 0) > 0 || p.scales.present >= 2,
+      when: (p, player) => (player.scars?.length || 0) > 0 && p.scales.present >= 2,
       respond(p, player) {
         const hasWitnessed = player.scars?.includes('witnessed');
-        const reps = streakCount(p, 'tell_him_about_yours');
-        if (reps >= 1) {
-          return {
-            lines: [
-              'I tell him another piece. there is more than one.',
-              'his hand finds my sleeve and stays there.',
-              '(present rises. pressure eases.)',
-            ],
-            scales: { present: +1, pressure: -1 },
-          };
-        }
         if (hasWitnessed) {
           return {
             lines: [
               'I tell him about something I have seen. ~~I will not forget it.~~',
               'I tell him the part where I should have looked away and did not.',
               'he listens. his eyes do not move. but his hand finds the hem of my sleeve.',
-              '(present surges. stare eases.)',
             ],
             scales: { present: +3, stare: -2, pressure: -1 },
           };
@@ -2065,7 +2412,6 @@ const glimmer = {
           lines: [
             'I tell him about something I have seen. it is small, what I have to give.',
             'he listens, partially. it is enough.',
-            '(present rises. stare eases.)',
           ],
           scales: { present: +2, stare: -1 },
         };
@@ -2075,14 +2421,13 @@ const glimmer = {
     say_what_he_sees: {
       label: 'name what he\'s seeing',
       desc: 'describe it out loud. carefully. accurately.',
-      when: (p) => p.scales.stare >= 4 && p.scales.present >= 1,
-      respond(p) {
+      when: (p) => p.scales.stare >= 5 && p.scales.present >= 3,
+      respond() {
         return {
           lines: [
             'I describe what he is looking at. the road, the gravel, the small body in the gravel.',
             'I say it without hurry. he listens. his lips move with mine.',
             'we have agreed on the shape of what happened.',
-            '(present surges. stare eases. pressure eases.)',
           ],
           scales: { present: +3, stare: -2, pressure: -2 },
           composure: -1,
@@ -2093,14 +2438,13 @@ const glimmer = {
     let_him_pet: {
       label: 'let him pet you',
       desc: 'his hand on the floor is doing the shape of petting. offer your sleeve.',
-      when: (p) => p.scales.present >= 2 || p.scales.pressure >= 4,
-      respond(p) {
+      when: (p) => p.scales.present >= 3 && p.scales.pressure <= 6,
+      respond() {
         return {
           lines: [
             'I slide my sleeve under his hand on the floor. his fingers find the cuff.',
             'his hand does the shape of petting. ~~something he has been doing for a long time.~~',
             'after a while he leans his head against my arm.',
-            '(present surges. stare eases.)',
           ],
           scales: { present: +3, stare: -2, pressure: -1 },
         };
@@ -2108,11 +2452,17 @@ const glimmer = {
     },
   },
 
+  wait: {
+    label: 'wait',
+    desc: 'let the question keep building. ~~it will not~~ it does not stop on its own.',
+    when: (p) => p.scales.pressure >= 4 || p.scales.stare >= 7 || p.turn >= 4,
+  },
+
   interjections: [
     {
       id: 'did_you_see',
       once: true,
-      when: (p) => p.scales.present >= 3 && p.scales.pressure >= 4,
+      when: (p) => p.scales.present >= 4 && p.scales.pressure >= 5,
       prose: [
         'he turns toward me. his lips form a word he has been saving.',
         'he asks: ~~did you see?~~',
@@ -2125,9 +2475,9 @@ const glimmer = {
             'I say: I saw.',
             'his face breaks open, slowly, the way the dam goes.',
             'he is eight. he is here. he has been very alone.',
-            '(present surges. pressure collapses. stare collapses.)',
           ],
           scales: { present: +4, pressure: -4, stare: -3 },
+          composure: -1,
         },
         {
           label: 'I see now',
@@ -2135,7 +2485,6 @@ const glimmer = {
           lines: [
             'I say: I see you. I see you now.',
             'he blinks. ~~once.~~ once.',
-            '(present surges. stare eases.)',
           ],
           scales: { present: +3, stare: -2 },
         },
@@ -2145,7 +2494,6 @@ const glimmer = {
           lines: [
             'I look away. I look at the wall. ~~deliberately.~~',
             'he watches me do it. he is allowed to do it too, eventually.',
-            '(stare collapses. pressure eases. present rises.)',
           ],
           scales: { stare: -4, pressure: -2, present: +1 },
         },
@@ -2155,7 +2503,7 @@ const glimmer = {
     {
       id: 'where_did_he_go',
       once: true,
-      when: (p) => p.scales.present >= 5 && p.scales.stare <= 4,
+      when: (p) => p.scales.present >= 5 && p.scales.stare <= 5,
       prose: [
         'his hand is on the floor between us, doing the petting shape.',
         'he asks, very small: ~~where did he go?~~',
@@ -2167,7 +2515,6 @@ const glimmer = {
           lines: [
             'I say: somewhere quiet. where it does not hurt.',
             'he considers this. eventually he nods.',
-            '(present rises. stare eases. pressure eases.)',
           ],
           scales: { present: +2, stare: -1, pressure: -2 },
         },
@@ -2177,7 +2524,6 @@ const glimmer = {
           lines: [
             'I say: I don\'t know.',
             'he nods. he expected that answer. ~~it was a test he was failing too.~~',
-            '(present surges. stare collapses.)',
           ],
           scales: { present: +3, stare: -3 },
         },
@@ -2188,9 +2534,95 @@ const glimmer = {
             'I say: with the others. the rest of yours.',
             'he sits with that. he is somewhere I cannot follow for a moment.',
             'when he comes back his hand stays on my sleeve.',
-            '(present surges. pressure collapses.)',
           ],
           scales: { present: +2, pressure: -3 },
+          composure: -1,
+        },
+      ],
+    },
+
+    {
+      id: 'can_we_go_now',
+      once: true,
+      when: (p) => p.scales.pressure >= 6 && p.scales.present >= 4,
+      prose: [
+        'he is rocking slightly. his lips move without sound for a moment.',
+        'he asks me: ~~can we go now? can we go home?~~',
+      ],
+      responses: [
+        {
+          label: 'soon',
+          desc: 'a small lie.',
+          lines: [
+            'I say: soon.',
+            'he nods. he does not believe me. he holds my sleeve anyway.',
+          ],
+          scales: { pressure: -1, present: +1, stare: +1 },
+          scars: ['named'],
+        },
+        {
+          label: 'we have to stay',
+          desc: 'the harder truth.',
+          lines: [
+            'I say: we have to stay a little longer.',
+            'he is very quiet. ~~he is~~ he is older than eight, in this moment.',
+          ],
+          scales: { stare: -1, pressure: -1, present: +2 },
+          composure: -1,
+        },
+        {
+          label: 'where is home',
+          desc: 'ask him.',
+          lines: [
+            'I ask: where is home?',
+            'he tells me. a street name. a number. ~~his voice~~ his voice is very small.',
+            '!!a place that has not been there in forty years.!!',
+          ],
+          scales: { present: +3, pressure: -2 },
+          composure: -2,
+        },
+      ],
+    },
+
+    {
+      id: 'mom_isnt_coming',
+      once: true,
+      when: (p) => p.scales.stare >= 7 && p.turn >= 3,
+      prose: [
+        'his hand has stopped petting the floor. he is very still.',
+        'he says, ~~to no one~~ to no one: she said five minutes. ~~it has been~~ it has been a while.',
+      ],
+      responses: [
+        {
+          label: 'she\'ll come',
+          desc: 'a kind, terrible lie.',
+          lines: [
+            'I say: she\'ll come.',
+            'he nods. ~~he has been~~ he has been waiting for someone to say that.',
+          ],
+          scales: { stare: +1, pressure: -2 },
+          scars: ['named'],
+          composure: -1,
+        },
+        {
+          label: 'she came back',
+          desc: 'a different lie.',
+          lines: [
+            'I say: she came back. she has been here. you have been here with her.',
+            'he is confused. ~~he~~ he wants to believe me.',
+          ],
+          scales: { pressure: -1, stare: -1, present: +1 },
+          composure: -1,
+        },
+        {
+          label: 'I\'ll stay',
+          desc: 'commit to the room.',
+          lines: [
+            'I say: I\'ll stay until someone comes.',
+            'he reaches for my sleeve. his fingers are small and cold.',
+          ],
+          scales: { present: +3, stare: -2, pressure: -1 },
+          composure: -1,
         },
       ],
     },
@@ -2203,8 +2635,9 @@ const glimmer = {
         lines: [
           'I wait. his lips part. ~~he is going to ask~~ he is going to ask.',
           'he closes his mouth again. but the question is louder now.',
-          '(pressure rises.)',
         ],
+        scales: { pressure: +1, stare: +1 },
+        composure: -1,
       };
     }
     if (p.scales.pressure >= 4) {
@@ -2212,22 +2645,21 @@ const glimmer = {
         lines: [
           'I wait. his hand is on the floor. it is doing the shape of petting.',
           'his fingers are very small.',
-          '(pressure rises.)',
         ],
+        scales: { stare: +1 },
+        composure: -1,
       };
     }
     return {
-      lines: [
-        'I wait. he stares. nothing else happens for a long time.',
-        '(pressure rises.)',
-      ],
+      lines: ['I wait. he stares. nothing else happens for a long time.'],
+      scales: { pressure: +1 },
     };
   },
 
   endings: [
     {
       id: 'eyes_closed',
-      when: (p) => p.scales.stare <= 2 && p.scales.present >= 4,
+      when: (p) => p.scales.stare <= 2 && p.scales.present >= 6,
       title: 'you close his eyes',
       lines: [
         'he is leaning against my arm. his eyes are closed. it is the first time in a long time.',
@@ -2237,7 +2669,7 @@ const glimmer = {
     },
     {
       id: 'answered',
-      when: (p) => p.scales.pressure <= 1 && p.scales.present >= 5,
+      when: (p) => p.scales.pressure <= 1 && p.scales.present >= 7,
       title: 'you give him an answer',
       lines: [
         'he is crying. he is eight. eight, finally. ~~for the first time~~ for the first time.',
@@ -2247,7 +2679,7 @@ const glimmer = {
     },
     {
       id: 'witnessed_with',
-      when: (p) => p.scales.present >= 7 && p.scales.stare >= 3,
+      when: (p) => p.scales.present >= 8 && p.scales.stare >= 5,
       title: 'you see for him',
       lines: [
         'I sit beside him. we look at the door together. ~~we do not~~ we do not look away.',
@@ -2282,17 +2714,12 @@ const glimmer = {
 // ════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════
-// FROSTFIN — the bench
+// THE BENCH — Patient 0118
 // ════════════════════════════════════════════════════════════════════════
-//
-//   warmth (positive) — willingness to leave the bench / be here
-//   recognition (positive) — does she see you, or the man who didn't come
-//   cold (negative) — the room's temperature, draining your composure
-//   waiting (negative) — committedness to the wait. high = nothing else
 
 const frostfin = {
   id: 'frostfin',
-  name: '[Frostfin]',
+  name: '[The Bench]',
   glyph: 'Frostfin',
   subtitle: 'she was found on the bench after.',
   role: 'wing', tier: 1,
@@ -2307,17 +2734,96 @@ const frostfin = {
   ],
 
   scales: {
-    warmth:      { initial: 0, min: 0, max: 10, label: 'warmth',      kind: 'positive' },
-    recognition: { initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive' },
-    cold:        { initial: 4, min: 0, max: 10, label: 'cold',        kind: 'negative' },
-    waiting:     { initial: 7, min: 0, max: 10, label: 'waiting',     kind: 'negative' },
+    warmth: {
+      initial: 0, min: 0, max: 10, label: 'warmth', kind: 'positive',
+      bands: [
+        { at: 0, word: 'a stranger' },
+        { at: 2, word: 'thawing' },
+        { at: 5, word: 'close' },
+        { at: 7, word: 'warm with me' },
+        { at: 9, word: 'kin' },
+      ],
+      crossUp: {
+        2: 'her shoulder has shifted toward mine.',
+        3: 'her arm has rested against mine.',
+        4: '~~she has~~ she has decided I will do.',
+      },
+      crossDown: {
+        1: 'she has gone back to watching the door.',
+      },
+    },
+    recognition: {
+      initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive',
+      bands: [
+        { at: 0, word: 'looking past me' },
+        { at: 2, word: 'sidelong' },
+        { at: 5, word: 'seeing' },
+        { at: 7, word: 'looking at me' },
+        { at: 9, word: 'all the way here' },
+      ],
+      crossUp: {
+        2: 'her eyes have come off the door.',
+        3: 'she has placed me. ~~for the moment.~~',
+        4: '!!she has decided I am here for her.!!',
+      },
+      crossDown: {
+        1: 'her eyes have gone back to the door.',
+      },
+    },
+    cold: {
+      initial: 4, min: 0, max: 10, label: 'cold', kind: 'negative',
+      bands: [
+        { at: 0, word: 'warm' },
+        { at: 3, word: 'cool' },
+        { at: 5, word: 'cold' },
+        { at: 7, word: 'freezing' },
+        { at: 9, word: 'killing' },
+      ],
+      crossUp: {
+        2: 'my breath has begun to show.',
+        3: '!!the cold has crossed into the body. my fingers are stiff.!!',
+        4: '!!the room is taking something from me.!!',
+      },
+      crossDown: {
+        2: 'the room has warmed by a degree.',
+        1: 'I can feel my fingers again.',
+        0: 'the room is warm now. ~~or has become.~~',
+      },
+    },
+    waiting: {
+      initial: 7, min: 0, max: 10, label: 'waiting', kind: 'negative',
+      bands: [
+        { at: 0, word: 'settled' },
+        { at: 3, word: 'still hoping' },
+        { at: 5, word: 'watching the door' },
+        { at: 7, word: 'bolt upright' },
+        { at: 9, word: 'unable to leave' },
+      ],
+      crossUp: {
+        3: 'her posture has gone rigid again. ~~she is~~ she is locked to the bench.',
+      },
+      crossDown: {
+        2: 'her shoulders have eased.',
+        1: 'she has settled. her hands are in her lap.',
+        0: 'she is not waiting anymore.',
+      },
+    },
   },
   initialize(p) {
-    p.scales.cold    = r(3, 5);
-    p.scales.waiting = r(6, 8);
+    p.scales.cold    = r(4, 6);
+    p.scales.waiting = r(7, 9);
     p.scales.recognition = 0;
     p.scales.warmth = 0;
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.recognition >= 3 || p.scales.warmth >= 3,
+      announce: 'a line of her file fills in. ~~the bench outside the train station.~~' },
+    { line: 1, when: (p) => p.scales.recognition >= 5 && p.scales.warmth >= 3,
+      announce: 'another. ~~her son said he would come.~~' },
+    { line: 2, when: (p) => p.scales.warmth >= 7 || (p.scales.warmth >= 5 && p.scales.recognition >= 6),
+      announce: 'the last line. **staff do not hold them long.**' },
+  ],
 
   presented(p) {
     const c = p.scales.cold;
@@ -2354,9 +2860,9 @@ const frostfin = {
             lines: [
               'I have been sitting a while. ~~her arm~~ her arm rests against mine, slightly.',
               'we are doing the same thing in the same direction. ~~it is not lonely.~~',
-              '(warmth rises. recognition rises. waiting eases.)',
             ],
             scales: { warmth: +2, recognition: +1, waiting: -1 },
+            composure: -1,
           };
         }
         if (p.scales.waiting >= 7) {
@@ -2364,7 +2870,6 @@ const frostfin = {
             lines: [
               'I sit on the bench beside her. she does not move.',
               'after a while I am also waiting. it is not entirely unpleasant.',
-              '(warmth rises. waiting eases.)',
             ],
             scales: { warmth: +1, waiting: -1 },
             composure: -1,
@@ -2374,7 +2879,6 @@ const frostfin = {
           lines: [
             'I sit beside her. she shifts, slightly, to make room.',
             'her shoulder almost touches mine. ~~she is~~ she is warmer than the room.',
-            '(warmth rises. recognition rises. cold eases.)',
           ],
           scales: { warmth: +1, recognition: +1, cold: -1 },
         };
@@ -2391,16 +2895,14 @@ const frostfin = {
             lines: [
               'I move around the room. fixing small things. she watches me.',
               '~~she is~~ she is amused, almost.',
-              '(cold falls. recognition rises.)',
             ],
-            scales: { cold: -2, recognition: +2 },
+            scales: { cold: -2, recognition: +1 },
           };
         }
         return {
           lines: [
             'I find a lamp. I find the radiator. I find a small thing to do.',
             'the room warms a degree. she does not seem to notice. but her hands are less cold than they were.',
-            '(cold falls.)',
           ],
           scales: { cold: -2 },
         };
@@ -2410,26 +2912,14 @@ const frostfin = {
     take_her_hand: {
       label: 'take her hand',
       desc: 'her hand is on her knee. it is very cold.',
-      when: (p) => p.scales.recognition >= 1 || p.scales.warmth >= 2,
+      when: (p) => p.scales.recognition >= 2 && p.scales.warmth >= 2,
       respond(p) {
-        const reps = streakCount(p, 'take_her_hand');
-        if (reps >= 1) {
-          return {
-            lines: [
-              'I take her hand again. she lets me, immediately this time.',
-              'her hand is the same temperature as the room. that is true now.',
-              '(warmth rises. waiting eases.)',
-            ],
-            scales: { warmth: +2, waiting: -2 },
-          };
-        }
         return {
           lines: [
             'I take her hand. it is colder than I expected. ~~as cold as~~ as cold as a hand can be.',
             p.scales.waiting >= 5
               ? 'she does not let go. her hand stays in mine like an object set down.'
               : 'she squeezes back. ~~once.~~ once.',
-            '(warmth rises. recognition rises. waiting eases.)',
           ],
           scales: { warmth: +2, recognition: +2, waiting: -1 },
           composure: -1,
@@ -2440,7 +2930,7 @@ const frostfin = {
     say_his_name: {
       label: 'say his name',
       desc: 'the one she is waiting for.',
-      when: (p) => p.scales.recognition >= 2 || p.scales.warmth >= 3,
+      when: (p) => p.scales.recognition >= 4,
       respond(p, player) {
         const r_ = player.traits?.includes('remembered');
         if (r_) {
@@ -2449,31 +2939,30 @@ const frostfin = {
               'I say his name. I say it the way she would have. ~~I have~~ practiced.',
               'she turns slowly. fully. she is looking at me as if she had been about to.',
               'she does not believe it is him. but she is willing to be wrong.',
-              '(recognition surges. waiting collapses. warmth rises.)',
             ],
             scales: { recognition: +3, waiting: -3, warmth: +1 },
             composure: -1,
           };
         }
-        if (p.scales.recognition >= 4) {
+        if (p.scales.recognition >= 5) {
           return {
             lines: [
               'I say his name. her name for him.',
               'she turns. all the way. her eyes are very bright. she says: where have you been?',
               '!!I am not him. I do not say so.!!',
-              '(recognition surges. waiting collapses.)',
             ],
             scales: { recognition: +2, waiting: -3 },
             composure: -1,
+            scars: ['named'],
           };
         }
         return {
           lines: [
             'I say his name. she stiffens.',
             'she is not sure who is saying it. she looks at me, sidelong.',
-            '(recognition rises.)',
           ],
-          scales: { recognition: +1 },
+          scales: { recognition: +1, warmth: -1 },
+          composure: -1,
         };
       },
     },
@@ -2481,14 +2970,14 @@ const frostfin = {
     say_you_came: {
       label: 'say you came',
       desc: 'lie. say you are him.',
-      when: (p) => p.scales.warmth >= 2 || p.scales.recognition >= 3,
+      when: (p) => p.scales.warmth >= 4 && p.scales.recognition >= 4,
       respond(p) {
         return {
           lines: [
             'I say: !!I am sorry I am late.!!',
             'she nods. she does not check. she stands up. she takes my arm.',
             'she walks me to the door of the room. ~~she does not~~ she does not look back at the bench.',
-            '(waiting collapses. warmth surges. recognition holds — but it is built on a lie.)',
+            '~~she does not~~ she does not look at me close.',
           ],
           scales: { waiting: -5, warmth: +3 },
           composure: -2,
@@ -2499,16 +2988,15 @@ const frostfin = {
     },
 
     ask_why_here: {
-      label: 'ask why she\'s here',
-      desc: 'a question, gently. who is she waiting for, and why this room.',
-      when: (p) => p.scales.recognition >= 3 && p.scales.warmth >= 2,
-      respond(p) {
+      label: 'ask who she\'s waiting for',
+      desc: 'a question, gently.',
+      when: (p) => p.scales.recognition >= 4 && p.scales.warmth >= 3,
+      respond() {
         return {
           lines: [
             'I ask: who are you waiting for?',
             'she tells me. she tells me carefully. it takes her a while. ~~she has not~~ she has not said his name in a long time.',
             'her hand stays on her knee. her eyes stay on the door, but they are mine now.',
-            '(recognition surges. waiting falls.)',
           ],
           scales: { recognition: +3, waiting: -2 },
         };
@@ -2518,18 +3006,23 @@ const frostfin = {
     bring_her_a_coat: {
       label: 'put a coat over her',
       desc: 'find one. her own coat is too thin.',
-      when: (p) => p.scales.warmth >= 3 || p.scales.cold <= 3,
-      respond(p) {
+      when: (p) => p.scales.warmth >= 3 && p.scales.cold >= 3,
+      respond() {
         return {
           lines: [
             'I find a heavier coat in the closet. I drape it over her shoulders.',
             'she lets me. she does not thank me. but her shoulders settle.',
-            '(cold falls. warmth rises. waiting eases.)',
           ],
           scales: { cold: -3, warmth: +1, waiting: -1 },
         };
       },
     },
+  },
+
+  wait: {
+    label: 'wait',
+    desc: 'sit with her. let the room go on cooling. ~~it costs.~~',
+    when: (p) => p.scales.waiting >= 6 || p.turn >= 4,
   },
 
   interjections: [
@@ -2548,7 +3041,6 @@ const frostfin = {
           lines: [
             'I say: yes. it came in.',
             'her shoulders drop. she sits a long time without speaking. she does not check.',
-            '(waiting falls. warmth rises. cold rises.)',
           ],
           scales: { waiting: -3, warmth: +1, cold: +1 },
           scars: ['named'],
@@ -2559,9 +3051,9 @@ const frostfin = {
           lines: [
             'I say: not yet.',
             'she nods. of course. she keeps waiting. but her arm finds its way to my arm.',
-            '(recognition rises. waiting holds.)',
           ],
-          scales: { recognition: +2 },
+          scales: { recognition: +2, waiting: +1 },
+          composure: -1,
         },
         {
           label: 'I don\'t think it\'s coming',
@@ -2570,9 +3062,130 @@ const frostfin = {
             'I say: I don\'t think it\'s coming.',
             'she is quiet. she looks at her hands for a long time.',
             'she says: ~~I knew.~~ very small.',
-            '(recognition surges. waiting collapses. warmth rises. cold rises.)',
           ],
           scales: { recognition: +3, waiting: -4, warmth: +1, cold: +1 },
+          composure: -2,
+        },
+      ],
+    },
+    {
+      id: 'which_one',
+      once: true,
+      when: (p) => p.scales.recognition >= 4 && p.scales.warmth >= 3,
+      prose: [
+        'her head turns. she squints at me. she has only just noticed.',
+        'she asks: ~~which one are you?~~ ~~which~~ — which of mine?',
+      ],
+      responses: [
+        {
+          label: 'tell her my name',
+          desc: 'I am not one of them.',
+          lines: [
+            'I say: I am Patient 0413. I came in this morning. I am not yours.',
+            'she nods. ~~she is not~~ she is not disappointed. she had not been sure.',
+          ],
+          scales: { recognition: +3, warmth: -1, cold: +1 },
+          composure: -1,
+        },
+        {
+          label: 'I am the one who came',
+          desc: 'let her have a guess.',
+          lines: [
+            'I say: I am the one who came.',
+            'she takes my arm with both hands. ~~she does~~ she does not check.',
+          ],
+          scales: { warmth: +3, recognition: -1, waiting: -2 },
+          scars: ['named'],
+        },
+        {
+          label: 'I don\'t know',
+          desc: 'honest.',
+          lines: [
+            'I say: I don\'t know.',
+            'she nods. ~~that is~~ that is also the answer she has.',
+          ],
+          scales: { recognition: +2, warmth: +1 },
+        },
+      ],
+    },
+    {
+      id: 'is_it_late',
+      once: true,
+      when: (p) => p.scales.waiting >= 7 && p.turn >= 4,
+      prose: [
+        'her hand finds her own wrist. she presses where a watch should be.',
+        'she asks: ~~is it late?~~',
+      ],
+      responses: [
+        {
+          label: 'yes',
+          desc: 'a small truth.',
+          lines: [
+            'I say: yes. it is late.',
+            'she nods slowly. she does not stand.',
+          ],
+          scales: { waiting: +1, recognition: +1, cold: +1 },
+          composure: -1,
+        },
+        {
+          label: 'we have time',
+          desc: 'a kind lie.',
+          lines: [
+            'I say: we have time.',
+            'she relaxes a degree. her eyes have gone back to the door.',
+          ],
+          scales: { waiting: -1, warmth: +1 },
+          scars: ['named'],
+        },
+        {
+          label: 'too late for trains',
+          desc: 'gentle truth.',
+          lines: [
+            'I say: too late for trains.',
+            'she is quiet. ~~she had~~ she had not let herself say it.',
+          ],
+          scales: { waiting: -3, recognition: +2, warmth: +1, cold: +1 },
+          composure: -2,
+        },
+      ],
+    },
+    {
+      id: 'will_you_wait',
+      once: true,
+      when: (p) => p.scales.warmth >= 5 && p.scales.recognition >= 4,
+      prose: [
+        'her hand is on my sleeve. she has stopped watching the door.',
+        'she asks me: ~~will you wait with me?~~',
+      ],
+      responses: [
+        {
+          label: 'I will',
+          desc: 'commit to the bench.',
+          lines: [
+            'I say: I will.',
+            'she sets her head against my shoulder. ~~it is~~ it is light. it is very light.',
+          ],
+          scales: { warmth: +3, waiting: -2, recognition: +1 },
+          composure: -1,
+        },
+        {
+          label: 'only a while',
+          desc: 'an honest limit.',
+          lines: [
+            'I say: only a while. I cannot stay long.',
+            'she nods. she pats my hand. she does not let go.',
+          ],
+          scales: { warmth: +1, waiting: -1 },
+        },
+        {
+          label: 'I have to go',
+          desc: 'leave the offer.',
+          lines: [
+            'I say: I have to go soon.',
+            'her hand stays on my sleeve a moment longer than is comfortable. then she lets go.',
+          ],
+          scales: { warmth: -2, cold: +1, waiting: +2 },
+          composure: -2,
         },
       ],
     },
@@ -2580,48 +3193,33 @@ const frostfin = {
 
   drift(p, player) {
     if (p.scales.cold >= 5) {
-      player.composure = Math.max(0, player.composure - 1);
       return {
         lines: [
           'I wait. the cold has not lessened. ~~I~~ I am tired in a way I do not understand.',
-          '(composure −1. cold rises.)',
         ],
-        scales: { cold: +1 },
+        scales: { cold: +1, waiting: +1 },
+        composure: -1,
       };
     }
     if (p.scales.waiting >= 6) {
       return {
         lines: [
           'I wait. she shifts on the bench. she watches the door. ~~no one comes.~~ no one comes.',
-          '(waiting holds. cold rises.)',
         ],
-        scales: { cold: +1 },
+        scales: { cold: +1, waiting: +1 },
+        composure: -1,
       };
     }
     return {
-      lines: [
-        'I wait. she shifts. her hand finds her own knee.',
-        '(warmth rises slightly.)',
-      ],
-      scales: { warmth: +1 },
+      lines: ['I wait. she shifts. her hand finds her own knee.'],
+      scales: { warmth: +1, cold: +1 },
     };
   },
 
   endings: [
     {
-      id: 'walked_out',
-      when: (p) => p.flags.lied && p.scales.waiting <= 2,
-      title: 'she lets you walk her out',
-      lines: [
-        'she lets me walk her out of the room. she takes my arm tighter when we reach the door.',
-        '!!she does not look at me close. she does not look close at all.!!',
-      ],
-      trait: 'cold_hands',
-      scars: ['named'],
-    },
-    {
       id: 'sat_through',
-      when: (p) => p.scales.warmth >= 8 && p.scales.recognition >= 5 && p.scales.waiting <= 3,
+      when: (p) => p.scales.warmth >= 9 && p.scales.recognition >= 6 && p.scales.waiting <= 2,
       title: 'she lets you sit with her',
       lines: [
         'she does not need him to come. she has decided I will do.',
@@ -2629,6 +3227,17 @@ const frostfin = {
         'eventually she pats my hand. that is the ending. ~~for both of us.~~',
       ],
       trait: 'patience',
+    },
+    {
+      id: 'walked_out',
+      when: (p) => p.flags.lied && p.scales.waiting <= 2 && p.scales.warmth >= 6,
+      title: 'she lets you walk her out',
+      lines: [
+        'she lets me walk her out of the room. she takes my arm tighter when we reach the door.',
+        '!!she does not look at me close. she does not look close at all.!!',
+      ],
+      trait: 'cold_hands',
+      scars: ['named'],
     },
     {
       id: 'frozen',
@@ -2666,17 +3275,8 @@ const frostfin = {
 // ════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════
-// CHOIR — the final
+// THE CHOIR — the final ward
 // ════════════════════════════════════════════════════════════════════════
-//
-//   self      (positive) — what is left of you. starts at 10, only falls.
-//   recognition (positive) — your sense of which voice is yours
-//   chord     (negative) — the song's completion
-//   voice     (negative) — how much of your voice is now in the chord
-//
-// Self is your hard floor. If it falls to 0 you are gone. The choir's
-// pull is patient and the wait punishes — drift fills voice and chord
-// both. The only way out is to take yourself out before they finish you.
 
 const choir = {
   id: 'choir',
@@ -2696,18 +3296,99 @@ const choir = {
   ],
 
   scales: {
-    self:        { initial: 10, min: 0, max: 10, label: 'self',        kind: 'positive' },
-    recognition: { initial: 0,  min: 0, max: 10, label: 'recognition', kind: 'positive' },
-    chord:       { initial: 2,  min: 0, max: 10, label: 'chord',       kind: 'negative' },
-    voice:       { initial: 0,  min: 0, max: 10, label: 'voice',       kind: 'negative' },
+    self: {
+      initial: 10, min: 0, max: 10, label: 'self', kind: 'positive',
+      bands: [
+        { at: 0, word: 'almost gone' },
+        { at: 3, word: 'thin' },
+        { at: 5, word: 'here' },
+        { at: 7, word: 'intact' },
+        { at: 9, word: 'whole' },
+      ],
+      crossDown: {
+        3: 'I am thinner than I was. the room can see through me.',
+        2: 'I am hard to see, even to me.',
+        1: 'there is very little of me left.',
+        0: '!!I am almost gone.!!',
+      },
+      crossUp: {
+        2: 'I am back. ~~mostly.~~',
+        3: 'I am here. all the way here.',
+      },
+    },
+    recognition: {
+      initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive',
+      bands: [
+        { at: 0, word: 'unknown' },
+        { at: 2, word: 'stirring' },
+        { at: 5, word: 'hearing it' },
+        { at: 7, word: 'knowing' },
+        { at: 9, word: 'seeing whole' },
+      ],
+      crossUp: {
+        2: 'I can pick out where my voice would be.',
+        3: 'I can see them. each one. as themselves.',
+        4: '!!I know what this is.!!',
+      },
+      crossDown: { 1: 'they have blurred together again.' },
+    },
+    chord: {
+      initial: 2, min: 0, max: 10, label: 'chord', kind: 'negative',
+      bands: [
+        { at: 0, word: 'silent' },
+        { at: 3, word: 'humming' },
+        { at: 5, word: 'stacking' },
+        { at: 7, word: 'full' },
+        { at: 9, word: 'completed' },
+      ],
+      crossUp: {
+        2: 'the chord has thickened.',
+        3: '!!the chord wants me in it.!!',
+        4: '!!the chord is full. it knows what shape I would be.!!',
+      },
+      crossDown: {
+        2: 'the chord has come apart.',
+        1: 'one voice has gone.',
+        0: 'the chord is gone.',
+      },
+    },
+    voice: {
+      initial: 0, min: 0, max: 10, label: 'voice', kind: 'negative',
+      bands: [
+        { at: 0, word: 'silent' },
+        { at: 3, word: 'humming' },
+        { at: 5, word: 'joining' },
+        { at: 7, word: 'blended' },
+        { at: 9, word: 'lost in chord' },
+      ],
+      crossUp: {
+        2: 'I have begun to hum. ~~I do not~~ I do not remember starting.',
+        3: 'my voice is in the chord.',
+        4: '!!I can hear myself from outside.!!',
+      },
+      crossDown: {
+        2: 'my mouth has closed.',
+        1: 'I have stopped singing.',
+        0: 'I am silent. ~~for now.~~',
+      },
+    },
   },
   initialize(p, player) {
     const traits = player.traits?.length || 0;
-    p.scales.chord = 2 + Math.min(3, Math.floor(traits / 2));   // more traits = thicker chord
+    p.scales.chord = 3 + Math.min(3, Math.floor(traits / 2));
     p.scales.voice = 0;
     p.scales.self = 10;
     p.scales.recognition = 0;
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.recognition >= 2 || p.scales.chord >= 4,
+      announce: 'a line of the file fills in. ~~there is a room I have not been in.~~' },
+    { line: 1, when: (p) => p.scales.recognition >= 5,
+      announce: '**every patient I have met. and others I have not.**' },
+    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.voice >= 4,
+      announce: '!!they have been singing the whole time.!!' },
+  ],
 
   presented(p) {
     const s = p.scales.self;
@@ -2744,16 +3425,15 @@ const choir = {
             lines: [
               'I keep holding. the chord widens around me, looking for the gap.',
               'I do not give it. but it is exhausting work.',
-              '(self drops. recognition rises.)',
             ],
             scales: { self: -1, recognition: +2 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I stand at the door. I do not move. I do not sing.',
             'the chord searches for me. it does not find me yet.',
-            '(recognition rises. self holds.)',
           ],
           scales: { recognition: +2 },
         };
@@ -2763,14 +3443,14 @@ const choir = {
     listen_for_yours: {
       label: 'listen for your voice',
       desc: 'pick out your own voice in the chord. find where it is.',
-      respond(p) {
+      respond() {
         return {
           lines: [
             'I listen. I am there. I have been there. I have been singing for longer than I have been listening.',
             '~~for how long~~ for how long.',
-            '(recognition surges. self drops.)',
           ],
           scales: { recognition: +3, self: -1 },
+          composure: -1,
           flags: { found_voice: true },
         };
       },
@@ -2779,23 +3459,22 @@ const choir = {
     sing: {
       label: 'sing with them',
       desc: 'join the chord. let your voice in.',
-      when: (p) => true,   // always available
+      when: (p) => p.scales.recognition >= 1,
       respond(p) {
         const reps = streakCount(p, 'sing');
         if (reps >= 1) {
           return {
             lines: [
               'I sing more. the chord widens to make room. ~~I~~ I narrow.',
-              '(voice surges. chord rises. self collapses.)',
             ],
             scales: { voice: +3, chord: +2, self: -2 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I open my mouth. a note comes out. it fits.',
             'the chord widens to make room. ~~or I~~ or I narrow to fit.',
-            '(voice rises. chord rises. self drops.)',
           ],
           scales: { voice: +2, chord: +1, self: -1 },
         };
@@ -2805,7 +3484,7 @@ const choir = {
     name_yourself: {
       label: 'name yourself',
       desc: 'say your number. out loud.',
-      when: (p) => p.scales.self >= 2,
+      when: (p) => p.scales.self >= 3,
       respond(p) {
         const reps = streakCount(p, 'name_yourself');
         if (reps >= 1) {
@@ -2813,7 +3492,6 @@ const choir = {
             lines: [
               'I say it again. !!Patient 0413.!!',
               'the chord loses a note. my own note. ~~it had been there.~~',
-              '(self surges. voice drops. recognition rises.)',
             ],
             scales: { self: +2, voice: -2, recognition: +1 },
           };
@@ -2822,7 +3500,6 @@ const choir = {
           lines: [
             'I say: !!Patient 0413.!!',
             'the chord falters. one voice loses its place. ~~it might be~~ it might be mine.',
-            '(voice drops. self rises. chord drops.)',
           ],
           scales: { voice: -2, self: +2, chord: -1 },
         };
@@ -2832,16 +3509,15 @@ const choir = {
     take_yours_out: {
       label: 'take your voice out',
       desc: 'reach into the chord. pull yourself free of it.',
-      when: (p) => p.flags.found_voice || p.scales.recognition >= 4,
+      when: (p) => p.flags.found_voice && p.scales.recognition >= 5,
       respond(p) {
-        if (!p.flags.found_voice) {
+        if (p.scales.recognition < 7) {
           return {
             lines: [
               'I reach for what I think is my voice. ~~I find~~ I find someone else\'s.',
               'I pull it. they go quiet. ~~I do not~~ I do not know who.',
-              '(self drops. composure cost.)',
             ],
-            scales: { self: -1 },
+            scales: { self: -1, recognition: -1 },
             composure: -2,
             scars: ['witnessed'],
           };
@@ -2851,7 +3527,6 @@ const choir = {
             'I reach into the chord. my voice is there, exactly where I left it.',
             'I pull it out. the chord is poorer for it. I am ~~smaller~~ louder for it.',
             '!!I have me again.!!',
-            '(voice released. self restored. chord falters.)',
           ],
           scales: { voice: -10, self: +3, chord: -3 },
           flags: { excised: true },
@@ -2862,8 +3537,8 @@ const choir = {
     close_door: {
       label: 'close the door',
       desc: 'shut it from the inside. or the outside. you decide.',
-      when: (p) => p.scales.self >= 3,
-      respond(p) {
+      when: (p) => p.scales.self >= 5,
+      respond() {
         return {
           lines: [
             'I close the door. ~~from the inside.~~ from the outside.',
@@ -2878,7 +3553,7 @@ const choir = {
     look_at_yours: {
       label: 'look at one of them',
       desc: 'pick a single singer. see who it is.',
-      when: (p) => p.scales.recognition >= 2,
+      when: (p) => p.scales.recognition >= 3,
       respond(p) {
         const reps = streakCount(p, 'look_at_yours');
         const which = reps + 1;
@@ -2890,14 +3565,18 @@ const choir = {
         ];
         const m = memories[Math.min(which - 1, memories.length - 1)];
         return {
-          lines: [
-            m[0], m[1],
-            '(recognition surges. self drops.)',
-          ],
+          lines: [m[0], m[1]],
           scales: { recognition: +2, self: -1 },
+          composure: -1,
         };
       },
     },
+  },
+
+  wait: {
+    label: 'wait',
+    desc: 'let the chord come for me. ~~it will.~~',
+    when: () => true,
   },
 
   interjections: [
@@ -2917,9 +3596,9 @@ const choir = {
             'I say: yes.',
             'the chord widens. another note. ~~mine.~~',
             '!!they have me now.!!',
-            '(voice surges. chord surges. self collapses.)',
           ],
           scales: { voice: +4, chord: +3, self: -3 },
+          composure: -2,
         },
         {
           label: 'no',
@@ -2927,7 +3606,6 @@ const choir = {
           lines: [
             'I say: no.',
             'the chord wavers. one voice falters. they wait for me to change my mind.',
-            '(self rises. voice drops. recognition rises.)',
           ],
           scales: { self: +2, voice: -2, recognition: +2 },
         },
@@ -2937,7 +3615,6 @@ const choir = {
           lines: [
             'I say: I don\'t know.',
             'they accept it. for now. the chord holds its place.',
-            '(recognition surges. self holds.)',
           ],
           scales: { recognition: +3 },
         },
@@ -2946,7 +3623,7 @@ const choir = {
     {
       id: 'sing_with_us',
       once: true,
-      when: (p) => p.scales.chord >= 7 && p.scales.voice <= 2,
+      when: (p) => p.scales.chord >= 7 && p.scales.voice <= 3,
       prose: [
         'the chord opens. there is a space in it shaped like a person. shaped like me.',
         'one voice asks: ~~won\'t you sing with us?~~',
@@ -2958,7 +3635,6 @@ const choir = {
           lines: [
             'I say: no.',
             'the chord closes around the space. they continue without me. ~~they have learned~~ they have learned to.',
-            '(chord drops. self rises.)',
           ],
           scales: { chord: -2, self: +2 },
         },
@@ -2968,9 +3644,9 @@ const choir = {
           lines: [
             'I sing one note. just one. it fits.',
             'the chord settles for it.',
-            '(voice rises. chord rises. self drops.)',
           ],
           scales: { voice: +2, chord: +1, self: -1 },
+          composure: -1,
         },
         {
           label: 'I came to take mine out',
@@ -2978,9 +3654,89 @@ const choir = {
           lines: [
             'I say: I came to take my voice out.',
             'they go quiet. they have not been told that. they did not know it was possible.',
-            '(self surges. chord collapses.)',
           ],
-          scales: { self: +3, chord: -3 },
+          scales: { self: +3, chord: -3, recognition: +2 },
+        },
+      ],
+    },
+    {
+      id: 'who_were_you',
+      once: true,
+      when: (p) => p.scales.recognition >= 5 && p.scales.self >= 5,
+      prose: [
+        'the chord shifts. several voices, in unison.',
+        'they ask: ~~who were you, before us?~~',
+      ],
+      responses: [
+        {
+          label: 'Patient 0413',
+          desc: 'your number. flatly.',
+          lines: [
+            'I say: Patient 0413. I came in this morning.',
+            'the chord falters. one voice stops humming. ~~it was mine.~~',
+          ],
+          scales: { self: +3, voice: -2, recognition: +1 },
+        },
+        {
+          label: 'someone with a file',
+          desc: 'less specific.',
+          lines: [
+            'I say: someone with a file. someone admitted.',
+            'they accept that. it is not enough to undo what is being done.',
+          ],
+          scales: { recognition: +1, voice: +1, self: -1 },
+          composure: -1,
+        },
+        {
+          label: 'I don\'t remember',
+          desc: 'the truest answer.',
+          lines: [
+            'I say: I don\'t remember.',
+            'the chord nods. ~~it has been here~~ it has been here longer. it remembers for me.',
+          ],
+          scales: { voice: +3, chord: +2, self: -2 },
+          composure: -1,
+        },
+      ],
+    },
+    {
+      id: 'we_missed_you',
+      once: true,
+      when: (p) => p.scales.voice >= 3 && p.scales.self <= 6,
+      prose: [
+        'a single voice — closer than the others — speaks.',
+        'it says: ~~we missed you. ~~ we missed you.',
+      ],
+      responses: [
+        {
+          label: 'I missed you',
+          desc: 'echo.',
+          lines: [
+            'I say: I missed you.',
+            'the chord opens around me. ~~I~~ I do not move forward, but I have already moved.',
+          ],
+          scales: { voice: +3, chord: +2, self: -2 },
+          composure: -2,
+        },
+        {
+          label: 'I do not know you',
+          desc: 'refuse the claim.',
+          lines: [
+            'I say: I do not know you.',
+            'the voice goes quiet. the others continue. ~~the chord~~ the chord is poorer.',
+          ],
+          scales: { self: +2, chord: -2, recognition: +1 },
+        },
+        {
+          label: 'who am I',
+          desc: 'turn it around.',
+          lines: [
+            'I say: who am I, to you?',
+            'the chord answers. each voice says a different thing. ~~no two~~ no two are the same.',
+            '!!I do not recognize most of them.!!',
+          ],
+          scales: { recognition: +3, self: -1 },
+          composure: -1,
         },
       ],
     },
@@ -2992,21 +3748,41 @@ const choir = {
         lines: [
           'I wait. the chord deepens. one voice rises — ~~rocking, quietly~~ rocking, quietly. another — humming. another, ~~staring~~ staring.',
           'they have learned the whole ward. they are singing it.',
-          '(chord holds. self drops. voice rises.)',
         ],
-        scales: { self: -1, voice: +1 },
+        scales: { self: -1, voice: +1, chord: +1 },
+        composure: -1,
       };
     }
     return {
-      lines: [
-        'I wait. the choir hums. ~~one voice~~ one voice sounds like mine. it always has.',
-        '(chord rises. voice rises.)',
-      ],
+      lines: ['I wait. the choir hums. ~~one voice~~ one voice sounds like mine. it always has.'],
       scales: { chord: +1, voice: +1 },
+      composure: -1,
     };
   },
 
   endings: [
+    {
+      id: 'excised',
+      when: (p) => p.flags.excised && p.scales.self >= 6,
+      title: 'you take yourself out',
+      lines: [
+        'I leave the room with my voice in my hand. the chord is poorer. ~~I am~~ I am poorer.',
+        'I walk past them down the corridor. they continue without me. they always did.',
+        'I take the stairs.',
+      ],
+      trait: 'sleepless',
+    },
+    {
+      id: 'shut_out',
+      when: (p) => p.flags.shut_door && p.scales.self >= 5 && p.scales.voice <= 3,
+      title: 'you shut the door',
+      lines: [
+        'I close it from the outside. the choir is muffled by an inch of wood.',
+        'I walk back the way I came. ~~the corridor is~~ a different corridor.',
+        'I leave my file at the desk. the nurse takes it without looking up.',
+      ],
+      trait: 'unfinished',
+    },
     {
       id: 'joined',
       when: (p) => p.scales.voice >= 8 && p.scales.self <= 2,
@@ -3018,28 +3794,6 @@ const choir = {
       ],
       trait: null,
       scars: ['collapsed'],
-    },
-    {
-      id: 'excised',
-      when: (p) => p.flags.excised,
-      title: 'you take yourself out',
-      lines: [
-        'I leave the room with my voice in my hand. the chord is poorer. ~~I am~~ I am poorer.',
-        'I walk past them down the corridor. they continue without me. they always did.',
-        'I take the stairs.',
-      ],
-      trait: 'sleepless',
-    },
-    {
-      id: 'shut_out',
-      when: (p) => p.flags.shut_door,
-      title: 'you shut the door',
-      lines: [
-        'I close it from the outside. the choir is muffled by an inch of wood.',
-        'I walk back the way I came. ~~the corridor is~~ a different corridor.',
-        'I leave my file at the desk. the nurse takes it without looking up.',
-      ],
-      trait: 'unfinished',
     },
     {
       id: 'outlasted',
@@ -3057,17 +3811,12 @@ const choir = {
 // ════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════
-// HOLLOWOAK — the woman who is sure she had a daughter
+// THE MOTHER — Patient 0084
 // ════════════════════════════════════════════════════════════════════════
-//
-//   recognition (positive) — does she see you, or the daughter
-//   grief       (positive) — her ungrieved grief, building toward release
-//   insistence  (negative) — her commitment to "you are her". hard to break
-//   panic       (negative) — fear of losing the world she has
 
 const hollow = {
   id: 'hollow',
-  name: '[Hollowoak]',
+  name: '[The Mother]',
   glyph: 'Hollowoak',
   subtitle: 'she is sure she had a daughter.',
   role: 'wing', tier: 2,
@@ -3082,18 +3831,97 @@ const hollow = {
   ],
 
   scales: {
-    recognition: { initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive' },
-    grief:       { initial: 2, min: 0, max: 10, label: 'grief',       kind: 'positive' },
-    insistence:  { initial: 6, min: 0, max: 10, label: 'insistence',  kind: 'negative' },
-    panic:       { initial: 1, min: 0, max: 10, label: 'panic',       kind: 'negative' },
+    recognition: {
+      initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive',
+      bands: [
+        { at: 0, word: 'looking past me' },
+        { at: 2, word: 'searching my face' },
+        { at: 5, word: 'half-knowing' },
+        { at: 7, word: 'seeing me' },
+        { at: 9, word: 'all the way here' },
+      ],
+      crossUp: {
+        2: 'she has begun to study my face properly.',
+        3: 'she sees me — partly.',
+        4: '!!she sees me. she sees who I am.!!',
+      },
+      crossDown: {
+        1: 'her eyes have left my face.',
+      },
+    },
+    grief: {
+      initial: 2, min: 0, max: 10, label: 'grief', kind: 'positive',
+      bands: [
+        { at: 0, word: 'composed' },
+        { at: 2, word: 'stirring' },
+        { at: 5, word: 'rising' },
+        { at: 7, word: 'spilling' },
+        { at: 9, word: 'released' },
+      ],
+      crossUp: {
+        2: 'her lips have begun to shape a name she has not said in a while.',
+        3: 'her face has shifted. she is somewhere old.',
+        4: '!!the grief has come up.!!',
+      },
+      crossDown: {
+        1: 'she has folded the grief back away.',
+      },
+    },
+    insistence: {
+      initial: 6, min: 0, max: 10, label: 'insistence', kind: 'negative',
+      bands: [
+        { at: 0, word: 'hands her own' },
+        { at: 3, word: 'claiming' },
+        { at: 5, word: 'sure of me' },
+        { at: 7, word: 'rooted' },
+        { at: 9, word: 'unmovable' },
+      ],
+      crossUp: {
+        3: 'her grip on my arm has tightened.',
+        4: '!!she has decided I am her. she will not be moved.!!',
+      },
+      crossDown: {
+        2: 'her hand has gone back to her lap.',
+        1: 'she has stopped insisting.',
+        0: 'her hands are her own. she has let me go.',
+      },
+    },
+    panic: {
+      initial: 1, min: 0, max: 10, label: 'panic', kind: 'negative',
+      bands: [
+        { at: 0, word: 'calm' },
+        { at: 3, word: 'uneasy' },
+        { at: 5, word: 'edged' },
+        { at: 7, word: 'rising' },
+        { at: 9, word: 'broken' },
+      ],
+      crossUp: {
+        2: 'her breath has gone short.',
+        3: 'her hand has found her throat.',
+        4: '!!she is not in the room anymore. she is somewhere worse.!!',
+      },
+      crossDown: {
+        1: 'her breath has settled.',
+        0: 'she is calm. ~~for now.~~',
+      },
+    },
   },
   initialize(p, player) {
-    p.scales.insistence = r(5, 7);
+    p.scales.insistence = r(6, 8);
     p.scales.grief = r(1, 3);
     p.scales.recognition = 0;
-    p.scales.panic = r(0, 2);
+    p.scales.panic = r(1, 3);
     if (player.scars?.includes('named')) p.scales.insistence = Math.min(10, p.scales.insistence + 1);
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.recognition >= 3 || p.scales.grief >= 4,
+      announce: 'a line of her file fills in. ~~her daughter.~~ ~~the one she came in with.~~' },
+    { line: 1, when: (p) => p.scales.recognition >= 5 && p.scales.insistence <= 5,
+      announce: '**the room next door is empty.**' },
+    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.grief >= 7,
+      announce: 'the last line, in my hand. ~~she gave the orderly\'s name.~~' },
+  ],
 
   presented(p) {
     const i = p.scales.insistence;
@@ -3129,28 +3957,27 @@ const hollow = {
             lines: [
               'I have been her daughter a while now. I have told her about a week I did not have.',
               '~~she has~~ she has been very glad. but I am tired.',
-              '(insistence rises. composure drains.)',
             ],
-            scales: { insistence: +1 },
-            composure: -1,
+            scales: { insistence: +2, recognition: -1 },
+            composure: -2,
+            scars: ['named'],
           };
         }
-        if (p.scales.insistence >= 6) {
+        if (p.scales.insistence >= 7) {
           return {
             lines: [
               'I let her tell me what I have been doing this week.',
               'I have been at school. I have been seeing a young man. I have been thinking of cutting my hair.',
               'she is glad for me. it is a long monologue. ~~she has been waiting to give it.~~',
-              '(insistence holds. grief eases.)',
             ],
-            scales: { grief: -1 },
+            scales: { grief: -1, insistence: +1 },
+            composure: -1,
           };
         }
         return {
           lines: [
             'I let her hold my hand. I let her look at my face.',
             'she breathes out. ~~she has been~~ she has been afraid I would not come.',
-            '(insistence rises. panic eases.)',
           ],
           scales: { insistence: +1, panic: -1 },
         };
@@ -3167,7 +3994,6 @@ const hollow = {
             p.scales.recognition >= 3
               ? 'she looks at me, sidelong. she is letting me be what I am.'
               : 'she takes my hand anyway, but absentmindedly.',
-            '(recognition rises. insistence eases. panic eases.)',
           ],
           scales: { recognition: +2, insistence: -1, panic: -1 },
         };
@@ -3177,7 +4003,7 @@ const hollow = {
     correct_her: {
       label: 'correct her',
       desc: 'say: I am not her.',
-      when: (p) => p.scales.recognition >= 2,
+      when: (p) => p.scales.recognition >= 3,
       respond(p) {
         const reps = streakCount(p, 'correct_her');
         if (reps >= 1) {
@@ -3185,20 +4011,18 @@ const hollow = {
             lines: [
               'I say it again. ~~she does not~~ she does not want to hear it again.',
               'her hand goes from my arm to her own throat. her breath has changed.',
-              '(panic surges. insistence holds. composure cost.)',
             ],
-            scales: { panic: +3 },
-            composure: -1,
+            scales: { panic: +3, recognition: -1 },
+            composure: -2,
           };
         }
-        if (p.scales.recognition >= 5) {
+        if (p.scales.recognition >= 6) {
           return {
             lines: [
               'I say: I am not your daughter.',
               'she looks at me a long time. she does not argue. she lets go of my arm.',
               'she says: ~~I knew that.~~ I knew that.',
               'she sits down. she is suddenly very small.',
-              '(insistence collapses. recognition surges. grief surges.)',
             ],
             scales: { insistence: -4, recognition: +3, grief: +2 },
             composure: -1,
@@ -3209,9 +4033,8 @@ const hollow = {
             'I say: I am not your daughter.',
             'she does not hear me. or she hears but it is a fact she has already decided does not apply.',
             'her hand stays on my arm.',
-            '(recognition rises. panic stirs.)',
           ],
-          scales: { recognition: +1, panic: +1 },
+          scales: { recognition: +1, panic: +2 },
           composure: -1,
         };
       },
@@ -3220,6 +4043,7 @@ const hollow = {
     ask_about_her: {
       label: 'ask about her',
       desc: 'ask: what was she like? — and listen.',
+      when: (p) => p.scales.insistence <= 7,
       respond(p) {
         const reps = streakCount(p, 'ask_about_her');
         if (reps >= 1) {
@@ -3227,7 +4051,6 @@ const hollow = {
             lines: [
               'I ask another. and another. she gives me details. small ones. a knee scar. a favorite color.',
               'she is bringing back a person, one detail at a time.',
-              '(grief rises. recognition rises.)',
             ],
             scales: { grief: +2, recognition: +1 },
           };
@@ -3238,9 +4061,8 @@ const hollow = {
             'she answers. she answers for a long time. she remembers a great deal. some of it is happy.',
             'at the end she says a name. ~~the name~~ a name.',
             'I write it down. I will keep it.',
-            '(grief surges. recognition rises.)',
           ],
-          scales: { grief: +3, recognition: +2 },
+          scales: { grief: +3, recognition: +2, insistence: -1 },
         };
       },
     },
@@ -3248,7 +4070,7 @@ const hollow = {
     say_her_name: {
       label: 'say her name',
       desc: 'use her own — the one on her file.',
-      when: (p) => p.scales.recognition >= 3,
+      when: (p) => p.scales.recognition >= 4,
       respond(p, player) {
         const r_ = player.traits?.includes('remembered');
         if (r_) {
@@ -3257,7 +4079,6 @@ const hollow = {
               'I say her name. her own. ~~I~~ I have practiced this. it lands on her like a thing she had set down somewhere and missed.',
               'she answers. yes? she says it not as a question.',
               '!!her hands fold in her lap.!!',
-              '(recognition surges. insistence collapses.)',
             ],
             scales: { recognition: +3, insistence: -2 },
           };
@@ -3268,28 +4089,34 @@ const hollow = {
             p.scales.recognition >= 5
               ? 'she answers. yes? she says it like a question she had stopped asking.'
               : 'she frowns. she is trying to decide if I am talking to her, or to someone else with the same name.',
-            '(recognition rises. insistence eases.)',
           ],
-          scales: { recognition: +2, insistence: -1 },
+          scales: { recognition: +2, insistence: -1, panic: +1 },
         };
       },
     },
 
-    bring_her_a_thing: {
-      label: 'bring her something',
-      desc: 'a glass of water. a small object. evidence of you.',
-      when: (p) => p.scales.recognition >= 2,
-      respond(p) {
+    write_the_name: {
+      label: 'write the daughter\'s name',
+      desc: 'in your file. so that someone will keep it.',
+      when: (p) => p.scales.grief >= 6 && p.scales.recognition >= 5,
+      respond() {
         return {
           lines: [
-            'I get her a glass of water. I bring it to her. I tell her my name when I do.',
-            'she takes the glass and looks at me as if for the first time.',
-            '(recognition rises. insistence eases. panic eases.)',
+            'I write the name in my file. carefully. ~~as if she had~~ as if she had asked me to.',
+            'she watches me do it. she does not stop me.',
+            '!!the name belongs somewhere now.!!',
           ],
-          scales: { recognition: +2, insistence: -1, panic: -1 },
+          scales: { grief: +2, recognition: +2, insistence: -1 },
+          flags: { kept_name: true },
         };
       },
     },
+  },
+
+  wait: {
+    label: 'wait',
+    desc: 'let her tell me my own history. ~~it costs.~~',
+    when: (p) => p.scales.insistence >= 6 || p.turn >= 4,
   },
 
   interjections: [
@@ -3309,7 +4136,6 @@ const hollow = {
             'I tell her: I came in this morning. I was found at the front entrance.',
             'she takes that in slowly. she nods.',
             'she says: yes. yes, I remember now.',
-            '(recognition surges. insistence collapses.)',
           ],
           scales: { recognition: +3, insistence: -2 },
         },
@@ -3319,7 +4145,6 @@ const hollow = {
           lines: [
             'I say: I don\'t know.',
             'she nods slowly. she has been on this side of the question.',
-            '(recognition rises. grief surges.)',
           ],
           scales: { recognition: +2, grief: +3 },
         },
@@ -3329,9 +4154,8 @@ const hollow = {
           lines: [
             'I say: tell me first. who are you?',
             'she is quiet for a long time. she says her own name. ~~she has not said it in a while.~~',
-            '(recognition surges. insistence collapses.)',
           ],
-          scales: { recognition: +4, insistence: -3 },
+          scales: { recognition: +4, insistence: -3, grief: +1 },
         },
       ],
     },
@@ -3339,7 +4163,7 @@ const hollow = {
     {
       id: 'do_you_have_to_go',
       once: true,
-      when: (p) => p.scales.panic >= 4 && p.scales.insistence >= 5,
+      when: (p) => p.scales.panic >= 5 && p.scales.insistence >= 5,
       prose: [
         'she has heard a sound outside the room. her hand tightens.',
         'she asks: ~~do you have to go?~~',
@@ -3351,9 +4175,9 @@ const hollow = {
           lines: [
             'I say: I\'ll stay.',
             'her hand relaxes. her breath steadies. ~~she had been afraid.~~',
-            '(panic collapses. insistence rises slightly.)',
           ],
           scales: { panic: -4, insistence: +1 },
+          composure: -1,
         },
         {
           label: 'I\'ll come back',
@@ -3361,9 +4185,9 @@ const hollow = {
           lines: [
             'I say: I have to go. but I\'ll come back. ~~tomorrow.~~ tomorrow.',
             'she nods. she does not check her watch. but she lets go of my arm.',
-            '(panic eases. insistence eases.)',
           ],
           scales: { panic: -2, insistence: -2 },
+          scars: ['named'],
         },
         {
           label: 'you\'ll be alright',
@@ -3371,9 +4195,92 @@ const hollow = {
           lines: [
             'I say: you\'ll be alright.',
             'she does not seem convinced. but she does not stop me either.',
-            '(panic eases. recognition rises.)',
           ],
           scales: { panic: -1, recognition: +1 },
+        },
+      ],
+    },
+
+    {
+      id: 'were_you_there',
+      once: true,
+      when: (p) => p.scales.grief >= 6 && p.scales.recognition >= 4,
+      prose: [
+        'her face has gone still. she is looking somewhere I cannot see.',
+        'she asks me: ~~were you at the funeral?~~',
+      ],
+      responses: [
+        {
+          label: 'I was',
+          desc: 'tell her yes.',
+          lines: [
+            'I say: I was. I was there.',
+            'she nods. ~~the small one~~ a small one was there too, she says.',
+          ],
+          scales: { grief: +3, recognition: +1, insistence: -1 },
+          composure: -1,
+        },
+        {
+          label: 'I wasn\'t',
+          desc: 'tell her no.',
+          lines: [
+            'I say: I wasn\'t.',
+            'she is quiet. ~~for a long~~ for a long time. she does not let go of my arm.',
+          ],
+          scales: { grief: +2, panic: +1, insistence: -1 },
+        },
+        {
+          label: 'tell me about it',
+          desc: 'open it.',
+          lines: [
+            'I say: tell me about it.',
+            'she does. it is small. and clear. ~~she has~~ she has not let herself say any of it out loud.',
+          ],
+          scales: { grief: +3, recognition: +2 },
+          composure: -1,
+        },
+      ],
+    },
+
+    {
+      id: 'she_was_so_small',
+      once: true,
+      when: (p) => p.scales.grief >= 5 && p.scales.insistence <= 6,
+      prose: [
+        'her hand has come up to her own mouth.',
+        'she says, ~~mostly~~ mostly to herself: ~~she was so small. I held her in one arm.~~',
+      ],
+      responses: [
+        {
+          label: 'yes',
+          desc: 'just stay there with it.',
+          lines: [
+            'I say: yes. she was small.',
+            'she breathes out. ~~she has been holding it.~~',
+          ],
+          scales: { grief: +3, recognition: +1, insistence: -2 },
+          composure: -1,
+        },
+        {
+          label: 'how small',
+          desc: 'invite the detail.',
+          lines: [
+            'I ask: how small?',
+            'she gestures with her hands. she names a weight. she names a length.',
+            '~~a person, made specific.~~',
+          ],
+          scales: { grief: +3, recognition: +2 },
+          composure: -1,
+        },
+        {
+          label: 'change the subject',
+          desc: 'spare her.',
+          lines: [
+            'I look at the clock. I ask if she wants tea.',
+            'she does not answer for a long time. ~~she had been about to say~~ she had been about to say more.',
+          ],
+          scales: { grief: -2, insistence: +2, panic: +1 },
+          composure: -1,
         },
       ],
     },
@@ -3385,32 +4292,49 @@ const hollow = {
         lines: [
           'I wait. she is telling me about a birthday party. it was for me. I was eight.',
           '~~it was a long time ago.~~ it was a long time ago.',
-          '(insistence holds.)',
         ],
+        scales: { insistence: +1 },
+        composure: -1,
       };
     }
     if (p.scales.recognition >= 4) {
       return {
         lines: [
           'I wait. she is quiet. she watches my face like she might find something she has misplaced.',
-          '(recognition rises.)',
         ],
-        scales: { recognition: +1 },
+        scales: { recognition: +1, grief: +1 },
       };
     }
     return {
-      lines: [
-        'I wait. she is humming. she is humming something I do not recognize. it sounds like an old song.',
-        '(grief rises.)',
-      ],
-      scales: { grief: +1 },
+      lines: ['I wait. she is humming. she is humming something I do not recognize. it sounds like an old song.'],
+      scales: { grief: +1, insistence: +1 },
     };
   },
 
   endings: [
     {
+      id: 'her_name_kept',
+      when: (p) => p.flags.kept_name && p.scales.grief >= 8 && p.scales.recognition >= 6,
+      title: 'you keep her daughter\'s name',
+      lines: [
+        'I write the name in my file. I will say it to other people who ought to know it.',
+        '~~it is mine~~ it is hers. it is mine to carry.',
+      ],
+      trait: 'remembered',
+    },
+    {
+      id: 'truth_told',
+      when: (p) => p.scales.recognition >= 9 && p.scales.grief >= 5,
+      title: 'you tell her the truth',
+      lines: [
+        'she has heard me. she has known a while. she sits with it.',
+        'she says her own name out loud. ~~one~~ once. softly. she has not said it in a long time.',
+      ],
+      trait: 'redacted',
+    },
+    {
       id: 'i_am_her',
-      when: (p) => p.scales.insistence >= 9 && p.scales.recognition <= 2,
+      when: (p) => p.scales.insistence >= 10 && p.scales.recognition <= 3,
       title: 'you are her, for as long as it takes',
       lines: [
         'I let her tell me my history. I let her tell me what I am about to do with my life.',
@@ -3421,26 +4345,6 @@ const hollow = {
       scars: ['named'],
     },
     {
-      id: 'truth_told',
-      when: (p) => p.scales.recognition >= 8,
-      title: 'you tell her the truth',
-      lines: [
-        'she has heard me. she has known a while. she sits with it.',
-        'she says her own name out loud. ~~one~~ once. softly. she has not said it in a long time.',
-      ],
-      trait: 'redacted',
-    },
-    {
-      id: 'her_name_kept',
-      when: (p) => p.scales.grief >= 7 && p.scales.recognition >= 5,
-      title: 'you keep her daughter\'s name',
-      lines: [
-        'I write the name in my file. I will say it to other people who ought to know it.',
-        '~~it is mine~~ it is hers. it is mine to carry.',
-      ],
-      trait: 'remembered',
-    },
-    {
       id: 'panicked',
       when: (p) => p.scales.panic >= 9,
       title: 'you lose her',
@@ -3449,7 +4353,7 @@ const hollow = {
         '!!I leave the room. she does not notice.!!',
       ],
       trait: null,
-      scars: ['witnessed'],
+      scars: ['witnessed', 'failed'],
     },
     {
       id: 'abandoned',
@@ -3465,17 +4369,12 @@ const hollow = {
 // ════════════════════════════════════════════════════════════════════════
 
 // ════════════════════════════════════════════════════════════════════════
-// MIRELING — the pond
+// THE POND — Patient 0212
 // ════════════════════════════════════════════════════════════════════════
-//
-//   recognition (positive) — does she see this room, or the lawn
-//   release     (positive) — has she said what she put in the pond
-//   approach    (negative) — how close she is to you
-//   pond        (negative) — vividness of the memory in the room
 
 const mire = {
   id: 'mire',
-  name: '[Mireling]',
+  name: '[The Pond]',
   glyph: 'Mireling',
   subtitle: 'there is no pond on the grounds.',
   role: 'wing', tier: 3,
@@ -3491,17 +4390,92 @@ const mire = {
   ],
 
   scales: {
-    recognition: { initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive' },
-    release:     { initial: 0, min: 0, max: 10, label: 'release',     kind: 'positive' },
-    approach:    { initial: 0, min: 0, max: 10, label: 'approach',    kind: 'negative' },
-    pond:        { initial: 2, min: 0, max: 10, label: 'pond',        kind: 'negative' },
+    recognition: {
+      initial: 0, min: 0, max: 10, label: 'recognition', kind: 'positive',
+      bands: [
+        { at: 0, word: 'elsewhere' },
+        { at: 2, word: 'sidelong' },
+        { at: 5, word: 'half-here' },
+        { at: 7, word: 'with me' },
+        { at: 9, word: 'all here' },
+      ],
+      crossUp: {
+        2: 'her eyes have left the wall.',
+        3: 'she has turned. partly.',
+        4: '!!she is here. she is with me.!!',
+      },
+      crossDown: { 1: 'her eyes have gone back to the wall.' },
+    },
+    release: {
+      initial: 0, min: 0, max: 10, label: 'release', kind: 'positive',
+      bands: [
+        { at: 0, word: 'silent' },
+        { at: 2, word: 'circling' },
+        { at: 5, word: 'speaking around it' },
+        { at: 7, word: 'naming it' },
+        { at: 9, word: 'let go' },
+      ],
+      crossUp: {
+        2: 'she has begun to say what she has not said.',
+        3: 'the words are coming.',
+        4: '!!she has named it.!!',
+      },
+      crossDown: { 1: 'the words have gone back inside.' },
+    },
+    approach: {
+      initial: 0, min: 0, max: 10, label: 'approach', kind: 'negative',
+      bands: [
+        { at: 0, word: 'far wall' },
+        { at: 3, word: 'stepping' },
+        { at: 5, word: 'between me and the door' },
+        { at: 7, word: 'arm\'s length' },
+        { at: 9, word: 'on me' },
+      ],
+      crossUp: {
+        3: 'she has crossed half the room.',
+        4: '!!she is on me. her hand is on my collar.!!',
+      },
+      crossDown: {
+        2: 'she has stepped back.',
+        1: 'she has gone back to the wall.',
+      },
+    },
+    pond: {
+      initial: 2, min: 0, max: 10, label: 'pond', kind: 'negative',
+      bands: [
+        { at: 0, word: 'dry floor' },
+        { at: 3, word: 'damp' },
+        { at: 5, word: 'wet' },
+        { at: 7, word: 'ankle-deep' },
+        { at: 9, word: 'submerging' },
+      ],
+      crossUp: {
+        2: 'the floor has wet through the carpet.',
+        3: '!!the floor is open under me.!!',
+        4: '!!I am up to my ankles. the room is becoming the pond.!!',
+      },
+      crossDown: {
+        2: 'the floor has gone back to being a floor.',
+        1: 'the carpet is dry.',
+        0: 'the room is a room again.',
+      },
+    },
   },
   initialize(p) {
     p.scales.approach = 0;
-    p.scales.pond = r(1, 3);
+    p.scales.pond = r(2, 4);
     p.scales.recognition = 0;
     p.scales.release = 0;
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.pond >= 4 || p.scales.recognition >= 3,
+      announce: 'a line of her file fills in. ~~there is no pond on the grounds.~~' },
+    { line: 1, when: (p) => p.scales.release >= 4 || p.scales.recognition >= 5,
+      announce: '~~the statue.~~ ~~none on file.~~' },
+    { line: 2, when: (p) => p.scales.release >= 7 || (p.scales.release >= 5 && p.scales.recognition >= 5),
+      announce: 'the last line. **she put something in a pond, once.**' },
+  ],
 
   presented(p) {
     const a = p.scales.approach;
@@ -3530,7 +4504,7 @@ const mire = {
 
     answer_about_pond: {
       label: 'answer her',
-      desc: 'tell her where the pond is. or where it was.',
+      desc: 'tell her where the pond is. ~~or where it was.~~',
       respond(p) {
         const reps = streakCount(p, 'answer_about_pond');
         if (reps >= 2) {
@@ -3538,9 +4512,9 @@ const mire = {
             lines: [
               'I keep answering. each answer makes the pond more real.',
               'the floor is getting wetter. her face is closer than before.',
-              '(approach surges. pond surges.)',
             ],
             scales: { approach: +2, pond: +2 },
+            composure: -1,
           };
         }
         if (p.scales.pond <= 3) {
@@ -3549,7 +4523,6 @@ const mire = {
               'I say: it is out by the east lawn. the one with the statue.',
               'she nods slowly. she does not turn. but the room dries by a degree.',
               'her approach stops. she is waiting.',
-              '(pond rises. recognition stirs.)',
             ],
             scales: { pond: +1, recognition: +1 },
           };
@@ -3559,47 +4532,8 @@ const mire = {
             'I say: it is out by the east lawn.',
             'she answers — without turning — !!I have been there. I have been there recently.!!',
             'she takes a step closer.',
-            '(approach rises. pond rises.)',
           ],
           scales: { approach: +1, pond: +1 },
-        };
-      },
-    },
-
-    ask_about_statue: {
-      label: 'ask about the statue',
-      desc: 'what was at the edge of the pond? a stone? a person?',
-      respond(p, player) {
-        const r_ = player.traits?.includes('remembered');
-        if (r_) {
-          return {
-            lines: [
-              'I ask, but I already half-remember it. I say what I remember, and let her correct me.',
-              'she corrects me, gently. she fills in what I was missing. ~~it is a person.~~ it is a person.',
-              'she says the name. !!she says the name.!!',
-              '(release surges. pond rises.)',
-            ],
-            scales: { release: +3, pond: +1 },
-          };
-        }
-        if (p.scales.pond >= 5) {
-          return {
-            lines: [
-              'I ask: what does the statue look like?',
-              'she begins to describe it. she describes it in great detail. ~~it is a person~~ it is a person.',
-              'her voice breaks at the end. she does not turn.',
-              '(release stirs. pond rises.)',
-            ],
-            scales: { release: +2, pond: +1 },
-          };
-        }
-        return {
-          lines: [
-            'I ask: what does the statue look like?',
-            'she pauses. she is trying to remember. it is a slow remembering.',
-            '(pond rises.)',
-          ],
-          scales: { pond: +1 },
         };
       },
     },
@@ -3613,17 +4547,15 @@ const mire = {
           return {
             lines: [
               'I stay at the door. she has stopped advancing. but the room is colder.',
-              '(approach drops. composure cost. pond holds.)',
             ],
-            scales: { approach: -1 },
-            composure: -1,
+            scales: { approach: -1, pond: +1 },
+            composure: -2,
           };
         }
         return {
           lines: [
             'I move to the door. I put my back to it.',
             'she does not advance. she has stopped, mid-step. her face is on the wall still.',
-            '(approach drops. recognition stirs.)',
           ],
           scales: { approach: -2, recognition: +1 },
           composure: -1,
@@ -3631,18 +4563,54 @@ const mire = {
       },
     },
 
+    ask_about_statue: {
+      label: 'ask about the statue',
+      desc: 'what was at the edge of the pond? a stone? a person?',
+      when: (p) => p.scales.pond >= 3,
+      respond(p, player) {
+        const r_ = player.traits?.includes('remembered');
+        if (r_) {
+          return {
+            lines: [
+              'I ask, but I already half-remember it. I say what I remember, and let her correct me.',
+              'she corrects me, gently. she fills in what I was missing. ~~it is a person.~~ it is a person.',
+              'she says the name. !!she says the name.!!',
+            ],
+            scales: { release: +3, pond: +1, recognition: +1 },
+            composure: -1,
+          };
+        }
+        if (p.scales.pond >= 5) {
+          return {
+            lines: [
+              'I ask: what does the statue look like?',
+              'she begins to describe it. she describes it in great detail. ~~it is a person~~ it is a person.',
+              'her voice breaks at the end. she does not turn.',
+            ],
+            scales: { release: +2, pond: +1 },
+          };
+        }
+        return {
+          lines: [
+            'I ask: what does the statue look like?',
+            'she pauses. she is trying to remember. it is a slow remembering.',
+          ],
+          scales: { pond: +1, recognition: +1 },
+        };
+      },
+    },
+
     ask_what_she_put_in: {
       label: 'ask what she put in',
       desc: 'gently. what did she put in the pond?',
-      when: (p) => p.scales.pond >= 3 || p.scales.recognition >= 2,
+      when: (p) => p.scales.pond >= 5 && p.scales.recognition >= 2,
       respond(p) {
-        if (p.scales.pond <= 4) {
+        if (p.scales.pond <= 5) {
           return {
             lines: [
               'I ask: what did you put in the pond.',
               'she does not answer. she does not turn. but she stops asking about the pond.',
               'we are quiet a long time.',
-              '(release rises. approach drops. pond drops.)',
             ],
             scales: { release: +2, approach: -1, pond: -1 },
           };
@@ -3653,9 +4621,9 @@ const mire = {
             'she is silent. she does not turn. her hands are flat against the wall.',
             'after a long time she says: ~~something~~ something I should not have.',
             '!!she does not say what.!!',
-            '(release surges. pond rises. recognition stirs.)',
           ],
           scales: { release: +3, pond: +1, recognition: +1 },
+          composure: -1,
         };
       },
     },
@@ -3663,27 +4631,15 @@ const mire = {
     turn_her_around: {
       label: 'turn her around',
       desc: 'gently. take her by the wrist.',
-      when: (p) => p.scales.recognition >= 1 || p.scales.approach >= 2,
-      respond(p) {
-        if (p.scales.approach >= 5) {
-          return {
-            lines: [
-              'I take her by the wrist. she is closer than I thought. her hand is on my collar before I finish turning her.',
-              '!!the floor is opening, under us, somehow.!!',
-              'I let go.',
-              '(approach surges. composure cost.)',
-            ],
-            scales: { approach: +1 },
-            composure: -2,
-          };
-        }
+      when: (p) => p.scales.recognition >= 2 && p.scales.approach <= 4,
+      respond() {
         return {
           lines: [
             'I take her by the wrist. I turn her around slowly. she lets me.',
             'her eyes are very tired. she looks at me. she does not look at the wall.',
-            '(recognition surges. pond drops. approach holds.)',
           ],
           scales: { recognition: +3, pond: -1 },
+          composure: -1,
         };
       },
     },
@@ -3691,13 +4647,12 @@ const mire = {
     dry_a_corner: {
       label: 'dry a corner',
       desc: 'pretend the water is yours to deal with. towels.',
-      when: (p) => p.scales.pond >= 3,
-      respond(p) {
+      when: (p) => p.scales.pond >= 4,
+      respond() {
         return {
           lines: [
             'I find a towel. I dry the corner of the room near the door.',
             'the carpet is fabric again, briefly. she watches my hands.',
-            '(pond drops. recognition rises. approach drops.)',
           ],
           scales: { pond: -2, recognition: +1, approach: -1 },
         };
@@ -3707,19 +4662,24 @@ const mire = {
     sit_on_the_wet: {
       label: 'sit on the wet floor',
       desc: 'be in the pond with her.',
-      when: (p) => p.scales.pond >= 4 && p.scales.release >= 2,
-      respond(p) {
+      when: (p) => p.scales.pond >= 6 && p.scales.release >= 3,
+      respond() {
         return {
           lines: [
             'I sit down on the wet floor. my coat soaks through immediately.',
             'she turns. all the way. she sits beside me. ~~we are in the same room now.~~',
-            '(recognition surges. release rises. approach drops.)',
           ],
           scales: { recognition: +3, release: +2, approach: -2 },
-          composure: -1,
+          composure: -2,
         };
       },
     },
+  },
+
+  wait: {
+    label: 'wait',
+    desc: 'let her keep asking the wall. ~~the room~~ the room is wetter every minute.',
+    when: (p) => p.scales.approach >= 3 || p.scales.pond >= 5 || p.turn >= 4,
   },
 
   interjections: [
@@ -3738,7 +4698,6 @@ const mire = {
           lines: [
             'I say: yes.',
             'she takes a step away from the wall. she comes closer to me. ~~she is~~ she is grateful.',
-            '(release rises. approach rises. recognition surges.)',
           ],
           scales: { release: +2, approach: +1, recognition: +2 },
           scars: ['named'],
@@ -3749,9 +4708,9 @@ const mire = {
           lines: [
             'I say: I don\'t know him.',
             'she does not answer for a long time. then she says: ~~no one does anymore.~~',
-            '(release surges. pond rises.)',
           ],
           scales: { release: +3, pond: +1 },
+          composure: -1,
         },
         {
           label: 'tell me about him',
@@ -3760,7 +4719,6 @@ const mire = {
             'I say: tell me about him.',
             'she does. she does for a long time. ~~some of it~~ some of it is happy.',
             'at the end she gives me his name.',
-            '(release surges. recognition surges.)',
           ],
           scales: { release: +3, recognition: +2 },
         },
@@ -3782,9 +4740,9 @@ const mire = {
           lines: [
             'I say: yes.',
             'she lets out a long breath. she sits down on the wet floor. ~~thank god~~ thank god, she says.',
-            '(approach collapses. recognition surges. release rises.)',
           ],
           scales: { approach: -5, recognition: +3, release: +1 },
+          composure: -1,
         },
         {
           label: 'no',
@@ -3793,9 +4751,9 @@ const mire = {
             'I say: no. I am not going to stop you.',
             'she looks at me a long time. she does not move.',
             'eventually she walks back to the wall. ~~she did~~ she did not want to go.',
-            '(approach drops. recognition rises. pond rises.)',
           ],
           scales: { approach: -3, recognition: +2, pond: +1 },
+          composure: -1,
         },
         {
           label: 'I can\'t',
@@ -3803,9 +4761,90 @@ const mire = {
           lines: [
             'I say: I can\'t. but I am here.',
             'she nods. she sits down where she is. the room has a sitting woman in it.',
-            '(approach collapses. release rises. recognition rises.)',
           ],
           scales: { approach: -4, release: +2, recognition: +2 },
+        },
+      ],
+    },
+
+    {
+      id: 'whats_at_the_bottom',
+      once: true,
+      when: (p) => p.scales.pond >= 6 && p.scales.release >= 3,
+      prose: [
+        'she has stopped speaking to the wall. her shoulders are very still.',
+        'she asks the floor: ~~what is at the bottom of the pond?~~',
+      ],
+      responses: [
+        {
+          label: 'something heavy',
+          desc: 'meet her where she is.',
+          lines: [
+            'I say: something heavy.',
+            'she nods. ~~she has been~~ she has been remembering its weight.',
+          ],
+          scales: { release: +3, recognition: +1, pond: +1 },
+          composure: -1,
+        },
+        {
+          label: 'I don\'t know',
+          desc: 'do not name it.',
+          lines: [
+            'I say: I don\'t know.',
+            'she nods. she does not seem disappointed. ~~she did~~ she did not want to be told.',
+          ],
+          scales: { release: +1, recognition: +1, pond: -1 },
+        },
+        {
+          label: 'a person',
+          desc: 'name it.',
+          lines: [
+            'I say: a person.',
+            'she is very quiet. ~~she has not~~ she has not let anyone say it.',
+            '!!she does not deny it.!!',
+          ],
+          scales: { release: +4, recognition: +2, pond: +2 },
+          composure: -2,
+        },
+      ],
+    },
+
+    {
+      id: 'I_didnt_mean_it',
+      once: true,
+      when: (p) => p.scales.release >= 5 && p.scales.recognition >= 3,
+      prose: [
+        'she has turned slightly. she is looking at her own hands.',
+        'she says: ~~I didn\'t mean to.~~',
+      ],
+      responses: [
+        {
+          label: 'I know',
+          desc: 'simple.',
+          lines: [
+            'I say: I know.',
+            'she nods. ~~she has not~~ she has not been told that.',
+          ],
+          scales: { release: +3, recognition: +2, pond: -1 },
+        },
+        {
+          label: 'tell me what happened',
+          desc: 'invite.',
+          lines: [
+            'I say: tell me what happened.',
+            'she does. some of it. ~~she leaves~~ she leaves a lot of it under the water.',
+          ],
+          scales: { release: +3, recognition: +2 },
+          composure: -1,
+        },
+        {
+          label: 'it doesn\'t matter',
+          desc: 'do not require the story.',
+          lines: [
+            'I say: it doesn\'t matter what you meant.',
+            'she looks at me a long time. she does not agree. but she does not turn back to the wall.',
+          ],
+          scales: { recognition: +2, release: -1, pond: +1 },
         },
       ],
     },
@@ -3816,35 +4855,24 @@ const mire = {
       return {
         lines: [
           'I wait. she takes another step toward me. the floor is wet to my ankles now.',
-          '(approach rises. pond rises.)',
         ],
         scales: { approach: +1, pond: +1 },
+        composure: -1,
       };
     }
     return {
       lines: [
         'I wait. she is asking the wall about the pond. she does not advance, but the floor is wetter than it was.',
-        '(pond rises.)',
       ],
-      scales: { pond: +1 },
+      scales: { pond: +1, approach: +1 },
+      composure: -1,
     };
   },
 
   endings: [
     {
-      id: 'pulled_in',
-      when: (p) => p.scales.approach >= 9,
-      title: 'she takes you to the pond',
-      lines: [
-        'her hand on my collar. the floor opens.',
-        '!!I do not know what was at the bottom. I do not know whose name she spoke as I went under.!!',
-      ],
-      trait: null,
-      scars: ['witnessed', 'collapsed'],
-    },
-    {
       id: 'pond_acknowledged',
-      when: (p) => p.scales.release >= 7 && p.scales.recognition >= 5,
+      when: (p) => p.scales.release >= 8 && p.scales.recognition >= 7,
       title: 'you let her say it',
       lines: [
         'we sit on the wet floor a long time. she does not ask about the pond again.',
@@ -3855,7 +4883,7 @@ const mire = {
     },
     {
       id: 'denial_held',
-      when: (p) => p.scales.pond <= 2 && p.scales.recognition >= 4,
+      when: (p) => p.scales.pond <= 1 && p.scales.recognition >= 6,
       title: 'you hold the room from her',
       lines: [
         'she has not turned. the floor is barely damp now. the pond is somewhere else, where it always was.',
@@ -3865,7 +4893,7 @@ const mire = {
     },
     {
       id: 'weight_named',
-      when: (p) => p.scales.release >= 8,
+      when: (p) => p.scales.release >= 9 && p.scales.pond >= 5,
       title: 'she names the weight',
       lines: [
         '!!she names it. she gives me the name.!!',
@@ -3873,6 +4901,17 @@ const mire = {
       ],
       trait: 'remembered',
       scars: ['witnessed'],
+    },
+    {
+      id: 'pulled_in',
+      when: (p) => p.scales.approach >= 9,
+      title: 'she takes you to the pond',
+      lines: [
+        'her hand on my collar. the floor opens.',
+        '!!I do not know what was at the bottom. I do not know whose name she spoke as I went under.!!',
+      ],
+      trait: null,
+      scars: ['witnessed', 'collapsed'],
     },
     {
       id: 'abandoned',
@@ -3914,17 +4953,96 @@ const composer = {
   ],
 
   scales: {
-    silence:    { initial: 0, min: 0, max: 10, label: 'silence',    kind: 'positive' },
-    completion: { initial: 2, min: 0, max: 10, label: 'completion', kind: 'positive' },
-    chord:      { initial: 3, min: 0, max: 10, label: 'chord',      kind: 'negative' },
-    tension:    { initial: 1, min: 0, max: 10, label: 'tension',    kind: 'negative' },
+    silence: {
+      initial: 0, min: 0, max: 10, label: 'silence', kind: 'positive',
+      bands: [
+        { at: 0, word: 'loud in me' },
+        { at: 2, word: 'breathing' },
+        { at: 5, word: 'listening' },
+        { at: 7, word: 'quiet' },
+        { at: 9, word: 'absent' },
+      ],
+      crossUp: {
+        2: 'I have stopped fidgeting. she has noticed.',
+        3: 'the room has space for her now.',
+        4: '~~I am not~~ I am not in the song. I am next to it.',
+      },
+      crossDown: {
+        1: 'my breathing has gotten loud again.',
+      },
+    },
+    completion: {
+      initial: 2, min: 0, max: 10, label: 'completion', kind: 'positive',
+      bands: [
+        { at: 0, word: 'empty' },
+        { at: 3, word: 'searching' },
+        { at: 5, word: 'near' },
+        { at: 7, word: 'ready' },
+        { at: 9, word: 'landing' },
+      ],
+      crossUp: {
+        2: 'the song has begun to know what it is.',
+        3: 'her hands have found the last few notes.',
+        4: '!!the chord is ready to land.!!',
+      },
+      crossDown: {
+        1: 'she has lost her place again.',
+      },
+    },
+    chord: {
+      initial: 3, min: 0, max: 10, label: 'chord', kind: 'negative',
+      bands: [
+        { at: 0, word: 'silent' },
+        { at: 3, word: 'humming' },
+        { at: 5, word: 'stacking' },
+        { at: 7, word: 'full' },
+        { at: 9, word: 'demanding release' },
+      ],
+      crossUp: {
+        3: 'the chord has thickened. there are voices in it.',
+        4: '!!the chord wants to land. it is louder than the room.!!',
+      },
+      crossDown: {
+        2: 'a note has fallen out of it.',
+        1: 'the chord has come apart.',
+        0: 'the chord is gone. the room is quiet.',
+      },
+    },
+    tension: {
+      initial: 1, min: 0, max: 10, label: 'tension', kind: 'negative',
+      bands: [
+        { at: 0, word: 'calm' },
+        { at: 3, word: 'humming' },
+        { at: 5, word: 'tight' },
+        { at: 7, word: 'trembling' },
+        { at: 9, word: 'breaking' },
+      ],
+      crossUp: {
+        2: 'the room has gone tight.',
+        3: '!!my teeth are ringing.!!',
+        4: '!!the room is about to fall apart.!!',
+      },
+      crossDown: {
+        2: 'the tension has eased.',
+        1: 'the room has settled.',
+      },
+    },
   },
   initialize(p) {
-    p.scales.chord = r(2, 4);
+    p.scales.chord = r(3, 5);
     p.scales.silence = 0;
-    p.scales.completion = r(1, 3);
-    p.scales.tension = r(0, 2);
+    p.scales.completion = r(2, 4);
+    p.scales.tension = r(1, 3);
   },
+
+  fileReveals: [
+    { line: 0, when: (p) => p.scales.silence >= 3 || p.scales.completion >= 4,
+      announce: 'a line of her file fills in. ~~composing in the day room since admission.~~' },
+    { line: 1, when: (p) => p.scales.completion >= 5 || p.scales.chord >= 6,
+      announce: '~~she holds the notes.~~ she does not write them down.' },
+    { line: 2, when: (p) => p.scales.completion >= 7 || p.scales.tension >= 5,
+      announce: 'the last line. **she does not look up.**' },
+  ],
 
   presented(p) {
     const c = p.scales.chord;
@@ -3961,7 +5079,6 @@ const composer = {
             lines: [
               'I am very still. she has stopped noticing me, which is the right way.',
               'a note arrives. another. she has been working.',
-              '(silence rises. completion rises. chord rises.)',
             ],
             scales: { silence: +2, completion: +2, chord: +1 },
           };
@@ -3970,7 +5087,6 @@ const composer = {
           lines: [
             'I keep still. I keep quiet. I keep my breathing low.',
             'she adds a note. she leaves it alone.',
-            '(silence rises. chord rises.)',
           ],
           scales: { silence: +1, chord: +1 },
         };
@@ -3987,7 +5103,6 @@ const composer = {
             p.scales.completion >= 4
               ? 'she nods, slightly. she knows I am with her.'
               : 'she does not notice me listening, but the chord deepens a little anyway.',
-            '(silence rises. completion rises.)',
           ],
           scales: { silence: +2, completion: +1 },
         };
@@ -3997,7 +5112,7 @@ const composer = {
     add_a_note: {
       label: 'hum a low note',
       desc: 'add to the chord. quietly.',
-      when: (p) => p.scales.silence >= 1,
+      when: (p) => p.scales.silence >= 3 && p.scales.chord >= 3,
       respond(p) {
         const reps = streakCount(p, 'add_a_note');
         if (reps >= 2) {
@@ -4005,27 +5120,25 @@ const composer = {
             lines: [
               'I keep humming notes. the chord has thickened. she has not stopped.',
               '~~but the chord has~~ but the chord has more of me in it than I meant.',
-              '(chord surges. tension rises.)',
             ],
-            scales: { chord: +2, tension: +1 },
+            scales: { chord: +2, tension: +1, silence: -1 },
+            composure: -1,
           };
         }
-        if (p.scales.chord >= 6) {
+        if (p.scales.chord >= 7) {
           return {
             lines: [
               'I hum a low note. it does not fit. ~~the chord~~ the chord winces around it.',
               'she stops humming. she looks at me. !!she is angry, briefly.!!',
-              '(chord drops. completion drops. tension rises.)',
             ],
-            scales: { chord: -1, completion: -1, tension: +1 },
-            composure: -1,
+            scales: { chord: -1, completion: -1, tension: +2 },
+            composure: -2,
           };
         }
         return {
           lines: [
             'I hum a note. it fits. ~~it is~~ it is one she had been waiting for.',
             'she nods, almost.',
-            '(chord rises. completion rises.)',
           ],
           scales: { chord: +1, completion: +2 },
         };
@@ -4035,7 +5148,7 @@ const composer = {
     close_the_lid: {
       label: 'close the piano lid',
       desc: 'reach past her. close it. gently.',
-      when: (p) => p.scales.completion <= 4 && p.scales.silence >= 2,
+      when: (p) => p.scales.completion <= 4 && p.scales.silence >= 4,
       respond(p) {
         if (p.scales.completion <= 3) {
           return {
@@ -4053,9 +5166,8 @@ const composer = {
           lines: [
             'I reach to close it. her hand is on the lid first. she does not push me away.',
             'she says: !!not yet.!! she is firm.',
-            '(completion holds. chord holds. tension rises.)',
           ],
-          scales: { tension: +1 },
+          scales: { tension: +2 },
           composure: -1,
         };
       },
@@ -4064,16 +5176,15 @@ const composer = {
     let_her_finish: {
       label: 'let her finish',
       desc: 'lay your hands on the keys with hers. press together.',
-      when: (p) => p.scales.completion >= 5 && p.scales.chord >= 5,
+      when: (p) => p.scales.completion >= 6 && p.scales.chord >= 6,
       respond(p) {
-        if (p.scales.silence >= 4 && p.scales.completion >= 6 && p.scales.chord >= 6) {
+        if (p.scales.silence >= 5 && p.scales.completion >= 7 && p.scales.chord >= 7) {
           return {
             lines: [
               'I sit on the bench beside her. I find her shoulder with my shoulder.',
               'I lay my hands on the keys where hers are.',
               'we press. the chord lands. the room composes itself around it.',
               '!!she sets her hands in her lap. she has finished.!!',
-              '(chord released. completion released. silence holds.)',
             ],
             flags: { finished_chord: true },
             scales: { completion: -8, chord: -8 },
@@ -4083,9 +5194,8 @@ const composer = {
           lines: [
             'I sit beside her. I lay my hands on the keys. she shakes her head. ~~not now.~~ not yet.',
             'she lifts my hands off the keys gently.',
-            '(silence rises. tension rises.)',
           ],
-          scales: { silence: +1, tension: +1 },
+          scales: { silence: +1, tension: +2 },
           composure: -1,
         };
       },
@@ -4094,16 +5204,16 @@ const composer = {
     play_wrong_note: {
       label: 'play a wrong note',
       desc: 'sing a note that does not fit. break the chord.',
-      when: (p) => p.scales.chord >= 5,
-      respond(p) {
+      when: (p) => p.scales.chord >= 6,
+      respond() {
         return {
           lines: [
             'I sing a note that does not fit. it is wrong. it is obviously wrong.',
             'she stops humming. she stares at the spot the chord was in.',
             'one of the notes has dropped out of it. the others are leaning.',
-            '(chord drops. completion drops. tension surges.)',
           ],
           scales: { chord: -3, completion: -2, tension: +3 },
+          composure: -1,
         };
       },
     },
@@ -4111,14 +5221,13 @@ const composer = {
     ask_about_the_song: {
       label: 'ask about the song',
       desc: 'what is this? who is it for?',
-      when: (p) => p.scales.silence >= 3 && p.scales.chord >= 4,
-      respond(p) {
+      when: (p) => p.scales.silence >= 4 && p.scales.chord >= 4,
+      respond() {
         return {
           lines: [
             'I ask: what is this song?',
             'she tells me. quietly. it is for her husband. or her brother. she is not sure which.',
             'either way she has been writing it for a long time.',
-            '(completion rises. tension eases. silence holds.)',
           ],
           scales: { completion: +2, tension: -1 },
         };
@@ -4126,11 +5235,17 @@ const composer = {
     },
   },
 
+  wait: {
+    label: 'wait',
+    desc: 'hold the silence. let the chord stack itself.',
+    when: (p) => p.scales.completion <= 6 || p.scales.silence >= 3 || p.turn >= 4,
+  },
+
   interjections: [
     {
       id: 'can_you_hear_it',
       once: true,
-      when: (p) => p.scales.chord >= 6 && p.scales.silence >= 3,
+      when: (p) => p.scales.chord >= 6 && p.scales.silence >= 4,
       prose: [
         'she pauses with her hands above the keys. she turns her head, slightly, toward me.',
         'she asks: ~~can you hear it?~~',
@@ -4142,7 +5257,6 @@ const composer = {
           lines: [
             'I say: yes.',
             'she returns to the keys. her hands have steadied. she is no longer alone in this.',
-            '(completion surges. silence rises.)',
           ],
           scales: { completion: +3, silence: +2 },
         },
@@ -4152,7 +5266,6 @@ const composer = {
           lines: [
             'I say: I hear a chord. four notes. one of them is a half-step under the others.',
             'she nods slowly. she is surprised. she had not thought anyone was that careful.',
-            '(completion surges. chord rises.)',
           ],
           scales: { completion: +3, chord: +1, silence: +1 },
         },
@@ -4162,9 +5275,128 @@ const composer = {
           lines: [
             'I say: I hear it now.',
             'her hands move. the chord widens by one note. she is teaching me, briefly.',
-            '(chord rises. completion rises. silence rises.)',
           ],
           scales: { chord: +1, completion: +2, silence: +1 },
+        },
+      ],
+    },
+    {
+      id: 'which_brother',
+      once: true,
+      when: (p) => p.scales.silence >= 4 && p.scales.completion >= 3,
+      prose: [
+        'her hands have stopped, briefly. she is looking at the keys.',
+        'she asks: ~~did I have a brother, or a husband? I cannot remember which this is for.~~',
+      ],
+      responses: [
+        {
+          label: 'a brother',
+          desc: 'pick one.',
+          lines: [
+            'I say: a brother.',
+            'she nods. she begins again. one note at a time. ~~she does not check.~~',
+          ],
+          scales: { completion: +2, chord: +1 },
+          scars: ['named'],
+        },
+        {
+          label: 'a husband',
+          desc: 'pick the other.',
+          lines: [
+            'I say: a husband.',
+            'she pauses. she is not sure. but she begins again.',
+          ],
+          scales: { completion: +1, tension: +1 },
+          scars: ['named'],
+        },
+        {
+          label: 'tell me what you remember',
+          desc: 'do not name.',
+          lines: [
+            'I say: tell me what you remember.',
+            'she does. it is small. ~~a knee scar. a way of saying a particular word.~~',
+            '!!a person, made specific.!!',
+          ],
+          scales: { completion: +3, silence: +1 },
+        },
+      ],
+    },
+    {
+      id: 'is_this_right',
+      once: true,
+      when: (p) => p.scales.chord >= 7 && p.scales.tension <= 5,
+      prose: [
+        'she has stopped humming. her hands are above the keys, very still.',
+        'she asks: ~~is this right? does it sound right?~~',
+      ],
+      responses: [
+        {
+          label: 'it sounds right',
+          desc: 'give her the reassurance.',
+          lines: [
+            'I say: it sounds right.',
+            'she nods. she returns to the keys. ~~her hands~~ her hands are steadier than they were.',
+          ],
+          scales: { completion: +3, silence: +1 },
+        },
+        {
+          label: 'one note is wrong',
+          desc: 'be honest. point it out.',
+          lines: [
+            'I say: one of the notes is wrong. the third from the bottom.',
+            'she stares at the keys. she lifts her hand. she lowers it. ~~she~~ she does not press it.',
+          ],
+          scales: { chord: -2, tension: +2, completion: +1 },
+          composure: -1,
+        },
+        {
+          label: 'I can\'t tell',
+          desc: 'honest in a different way.',
+          lines: [
+            'I say: I can\'t tell.',
+            'she nods. ~~she~~ she has been wondering, too.',
+          ],
+          scales: { completion: +1, silence: +1, tension: +1 },
+        },
+      ],
+    },
+    {
+      id: 'am_I_done',
+      once: true,
+      when: (p) => p.scales.completion >= 6 && p.scales.silence >= 3,
+      prose: [
+        'her hands drop to her lap. she looks at the keys as if for the first time tonight.',
+        'she asks me: ~~am I done?~~',
+      ],
+      responses: [
+        {
+          label: 'you\'re done',
+          desc: 'release her.',
+          lines: [
+            'I say: you\'re done.',
+            'she nods slowly. her hands rest on the closed lid. ~~she~~ she has been waiting.',
+          ],
+          scales: { chord: -3, completion: -2, tension: -2 },
+          flags: { closed_lid: true },
+          composure: -1,
+        },
+        {
+          label: 'one more note',
+          desc: 'help her finish.',
+          lines: [
+            'I say: one more note.',
+            'she nods. she lifts a hand. she presses one key. ~~the room~~ the room rings.',
+          ],
+          scales: { completion: +3, chord: +2 },
+        },
+        {
+          label: 'I don\'t know',
+          desc: 'honest.',
+          lines: [
+            'I say: I don\'t know. only you know.',
+            'she sits with that. her hands stay in her lap. she does not begin again.',
+          ],
+          scales: { completion: -1, silence: +2, tension: +1 },
         },
       ],
     },
@@ -4176,18 +5408,15 @@ const composer = {
         lines: [
           'I wait. she adds the final note. the chord lands without me. ~~without anyone.~~',
           '!!the room composes itself. but I was not in it.!!',
-          '(chord released. completion released. tension surges.)',
         ],
         scales: { chord: -7, completion: -7, tension: +3 },
+        composure: -2,
         flags: { finished_alone: true },
       };
     }
     return {
-      lines: [
-        'I wait. she adds a note. then another. the chord deepens.',
-        '(chord rises. completion rises.)',
-      ],
-      scales: { chord: +1, completion: +1 },
+      lines: ['I wait. she adds a note. then another. the chord deepens.'],
+      scales: { chord: +1, completion: +1, tension: +1 },
     };
   },
 
@@ -4204,7 +5433,7 @@ const composer = {
     },
     {
       id: 'closed_lid',
-      when: (p) => p.flags.closed_lid,
+      when: (p) => p.flags.closed_lid && p.scales.silence >= 4,
       title: 'you close the lid',
       lines: [
         'the lid is closed. she rests her hands on the wood. the room is quiet for the first time.',
@@ -4232,7 +5461,7 @@ const composer = {
         '!!she has lost the place she was holding it from.!!',
       ],
       trait: null,
-      scars: ['witnessed'],
+      scars: ['witnessed', 'failed'],
     },
     {
       id: 'abandoned',

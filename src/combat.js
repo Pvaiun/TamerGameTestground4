@@ -124,7 +124,13 @@ export function beginEncounter(patientDef, player) {
     endingId: null,
     pendingTrait: null,
     pendingScars: [],
+    _revealedFile: [],     // indices of file lines uncovered through play
+    _knownBands: {},       // scale-key → last seen band index (for cross detection)
   };
+  // seed _knownBands so the first turn's cross-messages are meaningful
+  for (const k of Object.keys(patient.scales)) {
+    state.enc._knownBands[k] = bandIndex(patient, k);
+  }
   clearLog();
   state.screen = 'encounter';
 
@@ -196,12 +202,18 @@ async function runPlayerVerb(verbId) {
   pat.flags.lastVerb = verbId;
 
   if (verbId === 'wait') {
-    await applyResponse(callDrift(pat, p));
+    // patient may define a bespoke wait.respond; otherwise fall back to drift.
+    const resp = (typeof pat.def.wait?.respond === 'function')
+      ? pat.def.wait.respond(pat, p)
+      : callDrift(pat, p);
+    await applyResponse(resp);
   } else if (verbId === 'leave') {
     pat.flags.left = true;
-    const resp = (typeof pat.def.onLeave === 'function')
-      ? pat.def.onLeave(pat, p)
-      : { lines: ['I walk out. I leave the door open behind me.', '(I am farther from her than I came.)'], composure: -2, scars: ['abandoned'] };
+    const resp = (typeof pat.def.leave?.respond === 'function')
+      ? pat.def.leave.respond(pat, p)
+      : (typeof pat.def.onLeave === 'function')
+        ? pat.def.onLeave(pat, p)
+        : { lines: ['I walk out. I leave the door open behind me.', 'I am farther from her than I came.'], composure: -2, scars: ['abandoned'] };
     await applyResponse(resp);
   } else if (verbId === 'signature') {
     await runSignature();
@@ -340,6 +352,12 @@ async function applyResponse(resp) {
   const p = enc.player;
   const lines = Array.isArray(resp.lines) ? resp.lines : (resp.lines ? [resp.lines] : []);
 
+  // capture band indices BEFORE shifting so we can detect crossings.
+  const beforeBands = {};
+  if (resp.scales) {
+    for (const k of Object.keys(resp.scales)) beforeBands[k] = bandIndex(pat, k);
+  }
+
   if (resp.scales) {
     for (const [k, dv] of Object.entries(resp.scales)) shiftScale(pat, k, dv);
   }
@@ -370,6 +388,63 @@ async function applyResponse(resp) {
 
   for (const l of lines) {
     pushLog({ text: l, cls: 'narr' });
+    await drainLog();
+  }
+
+  // emit threshold-cross messages AFTER authored prose. these stand in for
+  // the old "(scale rises. scale falls.)" tail; they fire only when a scale
+  // crosses into a new band (calm → on edge), not on every tick.
+  for (const k of Object.keys(beforeBands)) {
+    const before = beforeBands[k];
+    const after = bandIndex(pat, k);
+    if (after === before) continue;
+    const def = pat.def.scales?.[k];
+    const direction = after > before ? 'up' : 'down';
+    const msgs = direction === 'up' ? (def?.crossUp || {}) : (def?.crossDown || {});
+    // emit the line for the destination band (highest band reached in this delta).
+    const msg = msgs[after];
+    if (msg) {
+      pushLog({ text: msg, cls: 'cross' });
+      await drainLog();
+    }
+    enc._knownBands[k] = after;
+  }
+
+  // file reveal pass — uncover any file lines whose `when` is now true.
+  await checkFileReveals(pat);
+}
+
+// Find the band index whose `at` is the highest <= the scale's current value.
+function bandIndex(pat, key) {
+  const def = pat.def.scales?.[key];
+  if (!def || !Array.isArray(def.bands) || !def.bands.length) return 0;
+  const v = pat.scales[key] ?? 0;
+  let idx = 0;
+  for (let i = 0; i < def.bands.length; i++) {
+    if ((def.bands[i].at ?? 0) <= v) idx = i;
+    else break;
+  }
+  return idx;
+}
+
+export function bandFor(pat, key) {
+  const def = pat.def.scales?.[key];
+  if (!def || !Array.isArray(def.bands) || !def.bands.length) return null;
+  return def.bands[bandIndex(pat, key)] || null;
+}
+
+async function checkFileReveals(pat) {
+  const enc = state.enc;
+  if (!Array.isArray(pat.def.fileReveals)) return;
+  enc._revealedFile = enc._revealedFile || [];
+  for (const fr of pat.def.fileReveals) {
+    if (enc._revealedFile.includes(fr.line)) continue;
+    let matches = false;
+    try { matches = !!fr.when(pat, enc.player); } catch (e) {}
+    if (!matches) continue;
+    enc._revealedFile.push(fr.line);
+    const announce = fr.announce || 'a line of the file fills itself in. ~~in my hand.~~';
+    pushLog({ text: announce, cls: 'reveal' });
     await drainLog();
   }
 }
