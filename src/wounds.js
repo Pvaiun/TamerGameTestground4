@@ -1,8 +1,7 @@
-// Wounds are admission reasons. Each is a starting state for a run: a small
-// handicap, a small gift, and a SIGNATURE action. The signature is a named
-// trait (id starting with `sig_`) from src/traits.js.
-//
-// At admission the player picks a wound. It becomes the seed of their file.
+// Wounds are admission reasons. Each is a starting state for a run: a
+// small handicap and a small gift. The wound is the seed of the player's
+// file. Wounds no longer hand out signatures — those have been replaced
+// by the inventory system in src/items.js.
 
 export const WOUNDS = {
   amnesia: {
@@ -14,11 +13,10 @@ export const WOUNDS = {
       'Vitals normal. Responds to questions. !!Does not remember the address.!!',
       'Settled in room without resistance.',
     ],
-    // mods are read by sumMod / engine. composureMax adds to your cap;
-    // startComposure is the per-fight baseline floor your composure drops to
-    // (you can always carry more across from events; never less than this).
+    // composureMax adds to your cap; startComposure is the per-fight
+    // baseline floor your composure drops to (you can always carry more
+    // across from events; never less than this).
     mods: { startComposure: 3 },
-    signature: 'sig_amnesia',
   },
 
   insomnia: {
@@ -31,7 +29,6 @@ export const WOUNDS = {
       'When asked to lie down: !!declines.!!',
     ],
     mods: { startComposure: 3, composureMax: 1 },
-    signature: 'sig_insomnia',
   },
 
   absence: {
@@ -44,7 +41,6 @@ export const WOUNDS = {
       'Asked which is here, in this chair: !!I do not know.!!',
     ],
     mods: { startComposure: 2 },
-    signature: 'sig_absence',
   },
 
   witness: {
@@ -57,7 +53,6 @@ export const WOUNDS = {
       'Subject does not remember writing it.',
     ],
     mods: { startComposure: 2 },
-    signature: 'sig_witness',
   },
 
   devotion: {
@@ -70,7 +65,6 @@ export const WOUNDS = {
       'Subject asks to be brought to one of them daily.',
     ],
     mods: { startComposure: 4 },
-    signature: 'sig_devotion',
   },
 
   hollow: {
@@ -83,7 +77,6 @@ export const WOUNDS = {
       'When asked what is missing, answers: ~~everything~~ I will know when it comes back.',
     ],
     mods: { startComposure: 2, composureMax: 2 },
-    signature: 'sig_hollow',
   },
 };
 

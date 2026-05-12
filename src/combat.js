@@ -16,57 +16,40 @@ import { state, pushLog, clearLog, COMPOSURE_MAX } from './state.js';
 import { sleep, randi } from './rng.js';
 import { sfx } from './audio.js';
 import { render } from './ui/render.js';
-import { sumMod, fireTraitHooks, TRAITS } from './traits.js';
 import { WOUNDS } from './wounds.js';
-import { SCARS, applyScar } from './scars.js';
+import { applyScar, scarsCap, scarsStartDelta, scarsDriftBite } from './scars.js';
+import { ITEMS, addItem, removeItem } from './items.js';
 import { shakeStage, spawnCallout } from './ui/animations.js';
 
 // ─── player setup ───────────────────────────────────────────────────────
 
-export function makePlayer(wound) {
+export function makePlayer(wound, startingItemId) {
   const w = WOUNDS[wound];
   const player = {
     name: 'Patient 0413',
     wound,
-    traits: [],
+    items: [],
     scars: [],
     composureMax: COMPOSURE_MAX,
     composure: 0,
-    signature: null,
   };
-  if (w && w.signature && TRAITS[w.signature]) {
-    player.signature = { id: w.signature, usesLeft: 1 };
-  }
-  // recompute first so composureMax reflects wound mods, then seed composure
-  // from the wound's startComposure (once-per-run, at admission).
+  // the admission card is always in your pocket. add it as the first item.
+  if (ITEMS['the_card']) addItem(player, 'the_card');
+  // and whatever the player picked at admission.
+  if (startingItemId && ITEMS[startingItemId]) addItem(player, startingItemId);
   recomputePlayerStats(player);
-  const initComposure = (w?.mods.startComposure || 0) + sumMod(player, 'startComposure');
+  const initComposure = (w?.mods.startComposure || 0);
   player.composure = Math.min(player.composureMax, Math.max(0, initComposure));
   return player;
 }
 
 export function recomputePlayerStats(player) {
-  // composureMax: base + wound mod + trait/signature mods. (sumMod only sees
-  // traits and signature — wound mods are separate and need to be added
-  // explicitly, just like with startComposure.)
+  // composureMax: base + wound mod, then capped by any scar that caps it
+  // (Witnessed and Collapsed both cap at 4).
   const w = WOUNDS[player.wound];
-  player.composureMax = COMPOSURE_MAX
-    + (w?.mods.composureMax || 0)
-    + sumMod(player, 'composureMax');
-  // scars then cap the max from above (e.g. Witnessed caps at 4).
-  for (const sid of player.scars || []) {
-    const s = SCARS[sid];
-    if (s && typeof s.composureCap === 'number') {
-      player.composureMax = Math.min(player.composureMax, s.composureCap);
-    }
-  }
+  player.composureMax = COMPOSURE_MAX + (w?.mods.composureMax || 0);
+  player.composureMax = Math.min(player.composureMax, scarsCap(player));
   if (player.composure > player.composureMax) player.composure = player.composureMax;
-}
-
-export function addTrait(player, traitId) {
-  if (!TRAITS[traitId]) return;
-  if (!player.traits.includes(traitId)) player.traits.push(traitId);
-  recomputePlayerStats(player);
 }
 
 // ─── encounter setup ────────────────────────────────────────────────────
@@ -95,24 +78,18 @@ export function beginEncounter(patientDef, player) {
     try { patientDef.initialize(patient, player); } catch (e) { console.error('initialize error', e); }
   }
 
-  // Composure CARRIES across encounters — corridor events and trait heals
-  // accumulate. The wound's startComposure is a per-fight BASELINE: composure
-  // can carry above it from events, but is raised TO it at fight start if
-  // depleted. Scar startComposureDeltas reduce the baseline (Abandoned: -1),
-  // never below an absolute floor of 1 so the player can always do at least
-  // one cost-1 verb (and WAIT / 0-cost verbs are always available).
+  // Composure carries across encounters — events and resolutions add to it.
+  // The wound's startComposure is a per-fight BASELINE: composure can carry
+  // above it from events, but is raised TO it at fight start if depleted.
+  // Scars apply a startComposureDelta (Abandoned/Failed/Wearing: -1 each).
+  // An absolute floor of 1 keeps the player able to act.
   recomputePlayerStats(player);
   const w = WOUNDS[player.wound];
   const ABS_FLOOR = 1;
-  let baseline = (w?.mods.startComposure || 0) + sumMod(player, 'startComposure');
-  for (const sid of player.scars || []) {
-    const s = SCARS[sid];
-    if (s && typeof s.startComposureDelta === 'number') baseline += s.startComposureDelta;
-  }
+  let baseline = (w?.mods.startComposure || 0) + scarsStartDelta(player);
   baseline = Math.max(ABS_FLOOR, Math.min(player.composureMax, baseline));
   player.composure = Math.max(baseline, player.composure);
   player.composure = Math.min(player.composureMax, player.composure);
-  if (player.signature) player.signature.usesLeft = 1;
 
   state.enc = {
     patient,
@@ -122,10 +99,11 @@ export function beginEncounter(patientDef, player) {
     over: false,
     outcome: null,
     endingId: null,
-    pendingTrait: null,
+    pendingItem: null,
     pendingScars: [],
     _revealedFile: [],     // indices of file lines uncovered through play
     _knownBands: {},       // scale-key → last seen band index (for cross detection)
+    _totalScaleMovement: 0, // running sum of |actual scale deltas| — drives file reveals
   };
   // seed _knownBands so the first turn's cross-messages are meaningful
   for (const k of Object.keys(patient.scales)) {
@@ -134,7 +112,6 @@ export function beginEncounter(patientDef, player) {
   clearLog();
   state.screen = 'encounter';
 
-  fireTraitHooks(player, 'onEncounterStart', { player, patient });
   runEncounterIntro();
 }
 
@@ -213,10 +190,11 @@ async function runPlayerVerb(verbId) {
       ? pat.def.leave.respond(pat, p)
       : (typeof pat.def.onLeave === 'function')
         ? pat.def.onLeave(pat, p)
-        : { lines: ['I walk out. I leave the door open behind me.', 'I am farther from her than I came.'], composure: -2, scars: ['abandoned'] };
+        : { lines: ['I walk out. I leave the door open behind me.', 'I am farther from her than I came.'], composure: -2, composureCost: '~~I closed the door.~~ I closed the door.', scars: ['abandoned'] };
     await applyResponse(resp);
-  } else if (verbId === 'signature') {
-    await runSignature();
+  } else if (typeof verbId === 'string' && verbId.startsWith('item:')) {
+    const itemId = verbId.slice(5);
+    await runPlayerItem(itemId);
   } else {
     const verb = (pat.def.verbs || {})[verbId];
     if (!verb) {
@@ -230,15 +208,29 @@ async function runPlayerVerb(verbId) {
     await applyResponse(resp);
   }
 
-  fireTraitHooks(p, 'onPlayerVerb', {
-    enc, player: p, patient: pat, verbId,
-    composure(delta) { p.composure = clamp(p.composure + delta, 0, p.composureMax); },
-    log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
-  });
   if (state.shownLogIdx < state.log.length - 1) await drainLog();
 
   pat.turn++;
   await postTurn();
+}
+
+async function runPlayerItem(itemId) {
+  const enc = state.enc;
+  const p = enc.player;
+  const pat = enc.patient;
+  const item = ITEMS[itemId];
+  if (!item || !(p.items || []).includes(itemId)) {
+    pushLog({ text: 'I reach. it is not in my pocket anymore.', cls: 'flavor' });
+    await drainLog();
+    return;
+  }
+  removeItem(p, itemId);
+  pushLog({ text: item.voice || `(${item.name})`, cls: 'sig' });
+  await drainLog();
+  const resp = (typeof item.respond === 'function')
+    ? item.respond(pat, p)
+    : { lines: ['nothing happens.'] };
+  await applyResponse(resp);
 }
 
 async function runInterjectionResponse(idx) {
@@ -250,11 +242,6 @@ async function runInterjectionResponse(idx) {
   pat.flags.lastVerb = `interjection:${intr.id}`;
   pat.flags.streak = 1;
   if (resp) await applyResponse(resp);
-  fireTraitHooks(enc.player, 'onPlayerVerb', {
-    enc, player: enc.player, patient: pat, verbId: `interjection:${intr.id}`,
-    composure(delta) { enc.player.composure = clamp(enc.player.composure + delta, 0, enc.player.composureMax); },
-    log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
-  });
   if (state.shownLogIdx < state.log.length - 1) await drainLog();
   pat.turn++;
   await postTurn();
@@ -268,16 +255,7 @@ async function postTurn() {
   const pat = enc.patient;
   const ending = checkEndings(pat, p);
   if (ending) { await fireEnding(ending); return; }
-  if (p.composure <= 0) {
-    const cctx = {
-      enc, player: p, patient: pat, cancel: false,
-      composure(delta) { p.composure = clamp(p.composure + delta, 0, p.composureMax); },
-      log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
-    };
-    fireTraitHooks(p, 'onCollapse', cctx);
-    if (state.shownLogIdx < state.log.length - 1) await drainLog();
-    if (!cctx.cancel) { await fireCollapse(); return; }
-  }
+  if (p.composure <= 0) { await fireCollapse(); return; }
   // Look for an interjection to fire before the next player turn.
   await maybeFireInterjection();
   state.acting = false;
@@ -307,37 +285,19 @@ async function maybeFireInterjection() {
 }
 
 function callDrift(pat, player) {
+  let resp;
   if (typeof pat.def.drift === 'function') {
-    try { return pat.def.drift(pat, player) || { lines: ['nothing happens, for a while.'] }; }
-    catch (e) { console.error('drift error', e); }
+    try { resp = pat.def.drift(pat, player); }
+    catch (e) { console.error('drift error', e); resp = null; }
   }
-  return { lines: ['the room holds.'] };
-}
-
-async function runSignature() {
-  const enc = state.enc;
-  const p = enc.player;
-  const sig = p.signature;
-  if (!sig || sig.usesLeft <= 0) {
-    pushLog({ text: 'not now. not yet.', cls: 'flavor' });
-    await drainLog();
-    return;
+  resp = resp || { lines: ['nothing happens, for a while.'] };
+  // scars can make drift bite harder.
+  const bite = scarsDriftBite(player);
+  if (bite > 0 && typeof resp.composure === 'number' && resp.composure < 0) {
+    resp = { ...resp, composure: resp.composure - bite,
+             composureCost: resp.composureCost || 'the room is heavier than it should be. ~~something in me~~ something has been wearing.' };
   }
-  sig.usesLeft--;
-  const t = TRAITS[sig.id];
-  pushLog({ text: t?.voice || `(${t?.name || sig.id})`, cls: 'sig' });
-  await drainLog();
-  const ctx = {
-    enc, player: p, patient: enc.patient,
-    shift(scaleKey, delta) { shiftScale(enc.patient, scaleKey, delta); },
-    composure(delta) { p.composure = clamp(p.composure + delta, 0, p.composureMax); },
-    log(s, opts = {}) { pushLog({ text: s, cls: opts.cls || 'flavor' }); },
-    clearScars() { p.scars.length = 0; },
-    setFlag(k, v = true) { enc.patient.flags[k] = v; },
-    revealScale(key) { enc._revealed = enc._revealed || []; if (!enc._revealed.includes(key)) enc._revealed.push(key); },
-  };
-  fireTraitHooks(p, 'onSignature', ctx);
-  await drainLog();
+  return resp;
 }
 
 // A response is the contract between patient definitions and the engine.
@@ -359,7 +319,10 @@ async function applyResponse(resp) {
   }
 
   if (resp.scales) {
-    for (const [k, dv] of Object.entries(resp.scales)) shiftScale(pat, k, dv);
+    for (const [k, dv] of Object.entries(resp.scales)) {
+      const actual = shiftScale(pat, k, dv);
+      enc._totalScaleMovement = (enc._totalScaleMovement || 0) + Math.abs(actual);
+    }
   }
   if (resp.effects) {
     for (const [k, dv] of Object.entries(resp.effects)) {
@@ -375,7 +338,18 @@ async function applyResponse(resp) {
     for (const [k, v] of Object.entries(resp.flags)) pat.flags[k] = v;
   }
   if (typeof resp.composure === 'number') {
+    const before = p.composure;
     p.composure = clamp(p.composure + resp.composure, 0, p.composureMax);
+    const delta = p.composure - before;
+    // queue a styled cost line if the player took composure damage and the
+    // response authored a reason. fired AFTER the prose so the cost lands
+    // as punctuation, not preamble.
+    if (delta < 0 && resp.composureCost) {
+      enc._pendingCostLine = { text: resp.composureCost, amount: delta };
+    } else if (delta < 0 && !resp.composureCost) {
+      // fallback so every loss has at least a quiet acknowledgment
+      enc._pendingCostLine = { text: 'it costs me something I cannot put down.', amount: delta };
+    }
   }
   if (Array.isArray(resp.scars)) {
     for (const sid of resp.scars) {
@@ -388,6 +362,14 @@ async function applyResponse(resp) {
 
   for (const l of lines) {
     pushLog({ text: l, cls: 'narr' });
+    await drainLog();
+  }
+
+  // emit composure-cost line AFTER prose. styled red, with the amount.
+  if (enc._pendingCostLine) {
+    const c = enc._pendingCostLine;
+    pushLog({ text: c.text, cls: 'cost', damage: -c.amount });
+    enc._pendingCostLine = null;
     await drainLog();
   }
 
@@ -412,6 +394,16 @@ async function applyResponse(resp) {
 
   // file reveal pass — uncover any file lines whose `when` is now true.
   await checkFileReveals(pat);
+
+  // ink-bottle item sets _revealAllFile; reveal anything still hidden.
+  if (pat.flags._revealAllFile) {
+    pat.flags._revealAllFile = false;
+    enc._revealedFile = enc._revealedFile || [];
+    const total = (pat.def.file || []).length;
+    for (let i = 0; i < total; i++) {
+      if (!enc._revealedFile.includes(i)) enc._revealedFile.push(i);
+    }
+  }
 }
 
 // Find the band index whose `at` is the highest <= the scale's current value.
@@ -433,28 +425,36 @@ export function bandFor(pat, key) {
   return def.bands[bandIndex(pat, key)] || null;
 }
 
+// File reveals are paced by cumulative scale movement (`enc._totalScaleMovement`)
+// rather than turns or fixed scale thresholds — so investigative *engagement*
+// uncovers the file, not the calendar. Reveals fire strictly in order and at
+// most one per response, so each line gets its own narrative beat.
+const DEFAULT_REVEAL_THRESHOLDS = [7, 20, 35];
+
 async function checkFileReveals(pat) {
   const enc = state.enc;
   if (!Array.isArray(pat.def.fileReveals)) return;
   enc._revealedFile = enc._revealedFile || [];
-  for (const fr of pat.def.fileReveals) {
-    if (enc._revealedFile.includes(fr.line)) continue;
-    let matches = false;
-    try { matches = !!fr.when(pat, enc.player); } catch (e) {}
-    if (!matches) continue;
-    enc._revealedFile.push(fr.line);
-    const announce = fr.announce || 'a line of the file fills itself in. ~~in my hand.~~';
-    pushLog({ text: announce, cls: 'reveal' });
-    await drainLog();
-  }
+  const nextIdx = enc._revealedFile.length;
+  if (nextIdx >= pat.def.fileReveals.length) return;
+  const fr = pat.def.fileReveals[nextIdx];
+  const threshold = (typeof fr.at === 'number') ? fr.at
+                  : (DEFAULT_REVEAL_THRESHOLDS[nextIdx] ?? 99);
+  if ((enc._totalScaleMovement || 0) < threshold) return;
+  enc._revealedFile.push(nextIdx);
+  const announce = fr.announce || 'a line of the file fills itself in. ~~in my hand.~~';
+  pushLog({ text: announce, cls: 'reveal' });
+  await drainLog();
 }
 
 function shiftScale(pat, key, delta) {
-  if (delta === 0) return;
+  if (delta === 0) return 0;
   const def = pat.def.scales?.[key];
   const min = def?.min ?? 0;
   const max = def?.max ?? 5;
-  pat.scales[key] = clamp((pat.scales[key] || 0) + delta, min, max);
+  const before = pat.scales[key] || 0;
+  pat.scales[key] = clamp(before + delta, min, max);
+  return pat.scales[key] - before;
 }
 
 // ─── endings ────────────────────────────────────────────────────────────
@@ -484,25 +484,17 @@ async function fireEnding(ending) {
     ? ending.scars(enc.patient, enc.player)
     : ending.scars;
   const scars = Array.isArray(rawScars) ? rawScars : (rawScars ? [rawScars] : []);
-  // Filter through onScar hooks now (so e.g. Redacted prevents Witnessed)
-  // before the resolution screen displays them — so what the player sees is
-  // what they actually receive.
-  const filteredScars = scars.filter(sid => {
-    const sctx = { player: enc.player, scarId: sid, prevent: false };
-    fireTraitHooks(enc.player, 'onScar', sctx);
-    return !sctx.prevent;
-  });
-  const trait = (typeof ending.trait === 'function')
-    ? ending.trait(enc.patient, enc.player)
-    : (ending.trait || null);
+  const item = (typeof ending.item === 'function')
+    ? ending.item(enc.patient, enc.player)
+    : (ending.item || null);
 
   enc.over = true;
   enc.outcome = 'resolved';
   enc.endingId = ending.id;
   enc.endingTitle = ending.title;
-  enc.endingLines = lines;       // stored for archive recap
-  enc.pendingTrait = trait;
-  enc.pendingScars = filteredScars;
+  enc.endingLines = lines;
+  enc.pendingItem = item;
+  enc.pendingScars = scars;
   enc.awaitingResolution = true;
   state.acting = false;
   state.screen = 'resolution';
@@ -517,7 +509,7 @@ async function fireCollapse() {
   enc.over = true;
   enc.outcome = 'collapsed';
   enc.endingId = 'collapsed';
-  enc.pendingTrait = null;
+  enc.pendingItem = null;
   enc.pendingScars = ['collapsed'];
   state.acting = false;
   sfx('faint');
@@ -573,20 +565,12 @@ export function advanceLog() {
 export function acknowledgeResolution() {
   const enc = state.enc;
   if (!enc) return;
-  if (enc.pendingTrait && TRAITS[enc.pendingTrait]) {
-    addTrait(enc.player, enc.pendingTrait);
+  if (enc.pendingItem && ITEMS[enc.pendingItem]) {
+    addItem(enc.player, enc.pendingItem);
   }
   for (const sid of enc.pendingScars) {
-    // give redacted (and any other guard) a chance to refuse the scar
-    const sctx = { player: enc.player, scarId: sid, prevent: false };
-    fireTraitHooks(enc.player, 'onScar', sctx);
-    if (!sctx.prevent) applyScar(enc.player, sid);
+    applyScar(enc.player, sid);
   }
-  // onEncounterEnd trait hooks — used by `unfinished` to refill composure
-  fireTraitHooks(enc.player, 'onEncounterEnd', {
-    enc, player: enc.player, patient: enc.patient,
-    composure(delta) { enc.player.composure = clamp(enc.player.composure + delta, 0, enc.player.composureMax); },
-  });
   recomputePlayerStats(enc.player);
 }
 

@@ -1,13 +1,15 @@
-// Corridor events — short vignettes between patient encounters. Each event
-// presents a scene and 2-3 choices. Each choice carries an `effect(player,
-// run)` that mutates the player (composure, scars, traits, signature uses).
+// Corridor events — short vignettes between patient encounters. Each
+// event presents a scene and 2–3 choices. Each choice carries an
+// `effect(player, run)` that mutates the player (composure, scars, items).
 //
-// The new combat has no HP — composure and scars are the only durable
-// run-scale resources. Events shape both.
+// Items are the primary reward: most "good" choices hand the player an
+// item from the CORRIDOR pool, sometimes alongside a small composure
+// boost. Some "good" choices have a hidden cost — a scar, a worse item,
+// or a composure ding later.
 
-import { pick, pickN } from './rng.js';
-import { addTrait } from './combat.js';
+import { pick } from './rng.js';
 import { applyScar } from './scars.js';
+import { addItem } from './items.js';
 import { COMPOSURE_MAX } from './state.js';
 
 function bumpComposure(p, n) {
@@ -39,10 +41,10 @@ export const EVENTS = {
         effect() {},
       },
       {
-        key: 'sign',
-        label: 'Sign the page she has not turned',
-        prose: 'I sign. the page is mine. the pen is ~~hers~~ mine. I feel resolved. !!and a little less my own.!!',
-        effect(p) { bumpComposure(p, 2); applyScar(p, 'named'); },
+        key: 'pocket',
+        label: 'Pocket a vial from the tray',
+        prose: 'I take a small vial from the tray. she does not see me do it. ~~or does, and lets me.~~',
+        effect(p) { addItem(p, 'vial'); },
       },
     ],
   },
@@ -61,7 +63,7 @@ export const EVENTS = {
         key: 'read',
         label: 'Read the file',
         prose: 'I read it through. some of it is true. some of it is becoming true.',
-        effect(p, run) { run._readSelf = true; bumpComposure(p, 1); },
+        effect(p) { bumpComposure(p, 1); addItem(p, 'scrap_of_paper'); },
       },
       {
         key: 'leave',
@@ -73,7 +75,7 @@ export const EVENTS = {
         key: 'rewrite',
         label: 'Rewrite the third page',
         prose: 'I scratch out the line. I write another. the page does not ~~object~~ resist. !!I do not recognize my own hand.!!',
-        effect(p) { addTrait(p, 'unfinished'); applyScar(p, 'witnessed'); },
+        effect(p) { addItem(p, 'ink_bottle'); applyScar(p, 'witnessed'); },
       },
     ],
   },
@@ -90,23 +92,20 @@ export const EVENTS = {
       {
         key: 'wait',
         label: 'Wait for myself',
-        prose: 'I wait. the other me passes. we do not nod.',
-        effect(p) { bumpComposure(p, 3); },
+        prose: 'I wait. the other me passes. we do not nod. ~~she~~ I drop something as I go by.',
+        effect(p) { bumpComposure(p, 2); addItem(p, 'worn_ribbon'); },
       },
       {
         key: 'follow',
         label: 'Step through',
-        prose: 'I step through. the room composes itself behind me. ~~the corridor I came from is gone~~ I am where I was.',
-        effect(p) {
-          if (p.signature) p.signature.usesLeft++;
-          applyScar(p, 'witnessed');
-        },
+        prose: 'I step through. the room composes itself behind me. ~~the corridor I came from is gone~~ I am where I was. there is something in my coat that was not there.',
+        effect(p) { addItem(p, 'small_bell'); applyScar(p, 'witnessed'); },
       },
       {
         key: 'shatter',
         label: 'Strike it',
         prose: 'I strike the glass. it does not break. !!my hand does.!!',
-        effect(p) { bumpComposure(p, -1); applyScar(p, 'collapsed'); },
+        effect(p) { bumpComposure(p, -1); addItem(p, 'sliver_of_glass'); applyScar(p, 'collapsed'); },
       },
     ],
   },
@@ -123,9 +122,9 @@ export const EVENTS = {
     choices: [
       {
         key: 'remember',
-        label: 'Remember it',
-        prose: 'I write it down. it adds to what I have.',
-        effect(p) { addTrait(p, 'remembered'); },
+        label: 'Remember the name',
+        prose: 'I write it down. I will keep it. ~~someone~~ someone should.',
+        effect(p) { addItem(p, 'scrap_of_paper'); },
       },
       {
         key: 'forget',
@@ -149,7 +148,7 @@ export const EVENTS = {
         key: 'write',
         label: 'Write something true',
         prose: 'I write it. the page accepts it. I am ~~smaller~~ more here.',
-        effect(p) { addTrait(p, 'unfinished'); },
+        effect(p) { bumpComposure(p, 2); },
       },
       {
         key: 'lie',
@@ -158,10 +157,10 @@ export const EVENTS = {
         effect(p) { bumpComposure(p, 4); applyScar(p, 'named'); },
       },
       {
-        key: 'leave_blank',
-        label: 'Leave the page blank',
-        prose: 'I leave it blank. the lamp ~~goes out~~ stays bright.',
-        effect() {},
+        key: 'pocket_pen',
+        label: 'Pocket the pen',
+        prose: 'I take the pen. it is heavier than it should be. ~~black ink~~ black ink.',
+        effect(p) { addItem(p, 'ink_bottle'); },
       },
     ],
   },
@@ -178,8 +177,8 @@ export const EVENTS = {
       {
         key: 'wave',
         label: 'Wave',
-        prose: 'they wave back. exactly. ~~I am being copied~~ I am being mirrored. I feel held.',
-        effect(p) { addTrait(p, 'small_warmth'); },
+        prose: 'they wave back. exactly. ~~I am being copied~~ I am being mirrored. when they straighten, there is a ribbon in their hand. and in mine.',
+        effect(p) { addItem(p, 'worn_ribbon'); },
       },
       {
         key: 'turn',
@@ -190,8 +189,38 @@ export const EVENTS = {
       {
         key: 'open',
         label: 'Open the window',
-        prose: 'cold. a wind comes in from outside. ~~I~~ I am thinner for it. !!I am also stronger.!!',
-        effect(p) { bumpComposure(p, -2); addTrait(p, 'cold_hands'); },
+        prose: 'cold. a wind comes in from outside. ~~I~~ I am thinner for it. !!I am also sharper.!!',
+        effect(p) { bumpComposure(p, -2); addItem(p, 'sliver_of_glass'); },
+      },
+    ],
+  },
+
+  donation_box: {
+    id: 'donation_box',
+    tag: '// corridor · a wooden box on the floor',
+    glyph: 'Loamback',
+    prose: [
+      'a wooden donation box is set against the wall. it should not be in this part of the building.',
+      'the slot is wide enough for a coin. ~~there is~~ there is something already inside, rattling.',
+    ],
+    choices: [
+      {
+        key: 'tip',
+        label: 'Tip it over',
+        prose: 'I tip the box. a black coin falls out, and a child\'s drawing folded in half.',
+        effect(p) { addItem(p, 'black_coin'); addItem(p, 'childs_drawing'); },
+      },
+      {
+        key: 'put',
+        label: 'Put something in',
+        prose: 'I drop the card from my pocket through the slot. ~~the card~~ the card I will not be needing.',
+        effect(p) { bumpComposure(p, -1); applyScar(p, 'named'); },
+      },
+      {
+        key: 'leave',
+        label: 'Leave it alone',
+        prose: 'I keep walking. the rattling continues a long time. ~~or it is~~ or it is something in my chest.',
+        effect(p) { bumpComposure(p, 1); },
       },
     ],
   },
@@ -199,7 +228,12 @@ export const EVENTS = {
 
 export function pickEventPool(n) {
   const keys = Object.keys(EVENTS);
-  const out = pickN(keys, Math.min(n, keys.length));
+  const shuffled = keys.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  const out = shuffled.slice(0, Math.min(n, shuffled.length));
   while (out.length < n) out.push(pick(keys));
   return out;
 }

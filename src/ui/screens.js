@@ -6,7 +6,7 @@ import { parseProse } from './textCorrupt.js';
 import { renderGlyph } from './glyphs.js';
 import { sfx } from '../audio.js';
 import { WOUNDS } from '../wounds.js';
-import { TRAITS } from '../traits.js';
+import { ITEMS, STARTING_ITEMS } from '../items.js';
 import { PATIENTS } from '../patients.js';
 import { startNewRun, enterCurrentNode, currentNode, applyResolutionAndAdvance, applyEventEffect, advanceRun, endRun } from '../run.js';
 import { EVENTS } from '../events.js';
@@ -81,7 +81,7 @@ export function renderTitle() {
   app().appendChild(page);
 }
 
-// ── admission (wound select) ────────────────────────────────────────────
+// ── admission (wound + starting item) ──────────────────────────────────
 export function renderAdmission() {
   app().appendChild(el('div', { class: 'doc-version' }, `v${VERSION}`));
   const page = docPage('// admission · patient 0413 · day one');
@@ -101,11 +101,25 @@ export function renderAdmission() {
   }
   page.appendChild(list);
 
-  const ready = !!state.admission?.wound;
+  // starting item — the nurse asks what I have in my pocket.
+  page.appendChild(prose([
+    'she asks: !!what do you have in your pocket?!! I empty it onto the desk.',
+    '~~I do not remember packing it.~~ I do not remember putting any of this in.',
+  ].join('\n\n')));
+  page.appendChild(sectionLabel('what I brought'));
+  const itemList = el('div', { class: 'doc-card-list' });
+  for (const iid of STARTING_ITEMS) {
+    const it = ITEMS[iid];
+    if (!it) continue;
+    itemList.appendChild(itemCardEl(it, state.admission?.startingItem === iid));
+  }
+  page.appendChild(itemList);
+
+  const ready = !!state.admission?.wound && !!state.admission?.startingItem;
   const btn = docButton(ready ? 'descend' : 'choose first', () => {
     if (!ready) return;
     sfx('select');
-    startNewRun(state.admission.wound);
+    startNewRun(state.admission.wound, state.admission.startingItem);
     import('./render.js').then(m => m.render());
   });
   if (!ready) btn.disabled = true;
@@ -115,6 +129,26 @@ export function renderAdmission() {
     btn,
   ));
   app().appendChild(page);
+}
+
+function itemCardEl(it, selected) {
+  const card = el('button', { class: 'doc-card wound-card item-card' + (selected ? ' selected' : '') });
+  card.addEventListener('click', () => {
+    state.admission = state.admission || {};
+    state.admission.startingItem = it.id;
+    import('./render.js').then(m => m.render());
+  });
+  card.appendChild(el('div', { class: 'doc-card-marker' }, selected ? '▸' : ' '));
+  const body = el('div', { class: 'doc-card-body' });
+  body.appendChild(el('div', { class: 'doc-card-head' }, [
+    el('span', { class: 'doc-card-name' }, it.name),
+  ]));
+  if (it.file) {
+    body.appendChild(el('div', { class: 'wound-file', html: parseProse(it.file) }));
+  }
+  body.appendChild(el('div', { class: 'wound-signature', html: parseProse(it.desc || '') }));
+  card.appendChild(body);
+  return card;
 }
 
 function woundCardEl(w, selected) {
@@ -135,16 +169,20 @@ function woundCardEl(w, selected) {
     file.appendChild(el('div', { class: 'wound-file-line', html: parseProse(line) }));
   }
   body.appendChild(file);
-  const sig = TRAITS[w.signature];
-  if (sig) {
-    body.appendChild(el('div', { class: 'wound-signature' }, [
-      el('span', { class: 'wound-sig-label' }, 'signature · '),
-      el('span', { class: 'wound-sig-name' }, sig.name),
-      el('span', { class: 'wound-sig-desc' }, ` · ${sig.desc}`),
-    ]));
-  }
+  body.appendChild(el('div', { class: 'wound-signature' }, woundMechLine(w)));
   card.appendChild(body);
   return card;
+}
+
+function woundMechLine(w) {
+  const start = w.mods?.startComposure ?? 0;
+  const capBonus = w.mods?.composureMax ?? 0;
+  const cap = 5 + capBonus;
+  const parts = [`start · ${start} of ${cap} composure each room`];
+  if (capBonus > 0) parts.push('the gauge holds more');
+  if (start >= 4) parts.push('calmer at the door');
+  else if (start <= 2) parts.push('thin on entry');
+  return parts.join(' · ');
 }
 
 function stripMarkup(s) {
@@ -230,31 +268,19 @@ function playerStatusEl(player) {
   ]));
   wrap.appendChild(el('div', { class: 'corridor-status-body' }, [
     el('span', { class: 'corridor-status-cell' }, `composure ${player.composure}/${player.composureMax}`),
-    el('span', { class: 'corridor-status-cell' }, `traits ${player.traits.length}`),
+    el('span', { class: 'corridor-status-cell' }, `pocket ${(player.items || []).length}`),
     el('span', { class: 'corridor-status-cell' }, `scars ${(player.scars || []).length}`),
   ]));
 
-  // signature (always shown so the player remembers what their once-per-fight does).
-  // Rendered as three stacked blocks so narrow viewports don't smash them
-  // together — labels, names, and descriptions stay legible at any width.
-  if (w && w.signature && TRAITS[w.signature]) {
-    const sig = TRAITS[w.signature];
-    const sigBlock = el('div', { class: 'corridor-sig-block' });
-    sigBlock.appendChild(el('div', { class: 'corridor-sig-label' }, 'signature'));
-    sigBlock.appendChild(el('div', { class: 'corridor-sig-name' }, sig.name));
-    sigBlock.appendChild(el('div', { class: 'corridor-sig-desc' }, sig.desc));
-    wrap.appendChild(sigBlock);
-  }
-
-  // collected traits — name + desc on each row.
-  if (player.traits.length) {
-    wrap.appendChild(el('div', { class: 'corridor-trait-list-label' }, '─ what I carry ─'));
-    for (const tid of player.traits) {
-      const tt = TRAITS[tid];
-      if (!tt) continue;
-      const row = el('div', { class: 'corridor-trait-row' });
-      row.appendChild(el('span', { class: 'corridor-trait-name' }, tt.name));
-      row.appendChild(el('span', { class: 'corridor-trait-desc' }, tt.desc));
+  // inventory — name + file line + desc for each item.
+  const items = (player.items || []).filter(i => ITEMS[i]);
+  if (items.length) {
+    wrap.appendChild(el('div', { class: 'corridor-trait-list-label' }, '─ in my pocket ─'));
+    for (const iid of items) {
+      const it = ITEMS[iid];
+      const row = el('div', { class: 'corridor-trait-row item' });
+      row.appendChild(el('span', { class: 'corridor-trait-name' }, it.name));
+      row.appendChild(el('span', { class: 'corridor-trait-desc' }, it.desc));
       wrap.appendChild(row);
     }
   }
@@ -362,18 +388,20 @@ export function renderResolution() {
     ]));
   }
 
-  // trait kept
-  const trait = enc.pendingTrait ? TRAITS[enc.pendingTrait] : null;
-  if (trait) {
+  // item taken with me — pressed into your hand, or picked up off the floor
+  const item = enc.pendingItem ? ITEMS[enc.pendingItem] : null;
+  if (item) {
     const taken = el('div', { class: 'resolution-trait-taken' });
-    taken.appendChild(el('div', { class: 'enc-section-label' }, '─ what I keep ─'));
-    taken.appendChild(el('div', { class: 'resolution-trait-name' }, trait.name));
-    taken.appendChild(el('div', { class: 'resolution-trait-voice', html: parseProse(trait.voice || '') }));
-    taken.appendChild(el('div', { class: 'resolution-trait-desc' }, trait.desc));
+    taken.appendChild(el('div', { class: 'enc-section-label' }, '─ what I take with me ─'));
+    taken.appendChild(el('div', { class: 'resolution-trait-name' }, item.name));
+    if (item.file) {
+      taken.appendChild(el('div', { class: 'resolution-trait-voice', html: parseProse(item.file) }));
+    }
+    taken.appendChild(el('div', { class: 'resolution-trait-desc' }, item.desc));
     page.appendChild(taken);
   } else {
     page.appendChild(el('div', { class: 'doc-prose dim' },
-      'no trait this time. ~~the room~~ the room did not give me one.'));
+      'nothing in my pocket this time. ~~the room~~ the room did not give me anything.'));
   }
 
   // scars carried forward
@@ -429,7 +457,7 @@ export function renderArchive() {
     if (summary.resolutions.length) {
       const list = el('div', { class: 'archive-resolutions' });
       for (const r of summary.resolutions) {
-        const t = r.trait ? TRAITS[r.trait] : null;
+        const it = r.item ? ITEMS[r.item] : null;
         const p = PATIENTS[r.patient];
         const card = el('div', { class: 'archive-res-card' });
         card.appendChild(el('div', { class: 'archive-res-header' }, [
@@ -445,10 +473,10 @@ export function renderArchive() {
           }
           card.appendChild(prose);
         }
-        // trait + scars taken
+        // item + scars taken
         const footer = el('div', { class: 'archive-res-footer' });
-        footer.appendChild(el('span', { class: 'archive-res-trait-label' }, 'kept · '));
-        footer.appendChild(el('span', { class: 'archive-res-trait' }, t ? t.name : 'nothing'));
+        footer.appendChild(el('span', { class: 'archive-res-trait-label' }, 'took · '));
+        footer.appendChild(el('span', { class: 'archive-res-trait' }, it ? it.name : 'nothing'));
         if (r.scars && r.scars.length) {
           footer.appendChild(el('span', { class: 'archive-res-sep' }, ' · '));
           footer.appendChild(el('span', { class: 'archive-res-trait-label' }, 'scars · '));

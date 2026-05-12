@@ -11,7 +11,8 @@
 //   initialize(patient, player)        — set scale starting values (with RNG)
 //   presented(patient): string         — composed sentence read each turn
 //   fileReveals: [
-//     { line: 0|1|2, when(patient, player): bool, announce?: 'string' }
+//     { at?: number, announce?: 'string' }, // sequential — array index is the file-line
+//     ...                                   // `at` is cumulative scale movement; defaults to [7, 20, 35]
 //   ]
 //   verbs: {
 //     [verbId]: {
@@ -27,7 +28,7 @@
 //     { id, when, once?, prose: [...], responses: [{ label, lines, scales, composure, scars, ... }] }
 //   ]
 //   drift(patient, player): Response   — fallback for WAIT
-//   endings: [{ id, when, title, lines, trait?, scars? }]
+//   endings: [{ id, when, title, lines, item?, scars? }]
 //
 // Response shape: { lines: string[]|string, scales: {key: delta},
 // composure: int, scars: string[], flags: {key: bool}, ... }
@@ -157,12 +158,9 @@ const pram = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.lucidity >= 3 || p.scales.tenderness >= 5,
-      announce: 'a line of her file fills itself in. ~~the pram. the pram is empty.~~' },
-    { line: 1, when: (p) => p.scales.grip <= 4 && p.scales.lucidity >= 4,
-      announce: 'another line, in my hand. **she has not been told.**' },
-    { line: 2, when: (p) => p.scales.lucidity >= 7 || (p.scales.lucidity >= 5 && p.scales.tenderness >= 7),
-      announce: 'the last line writes itself. ~~she meant herself.~~' },
+    { announce: 'a line of her file fills itself in. ~~the pram. the pram is empty.~~' },
+    { announce: 'another line, in my hand. **she has not been told.**' },
+    { announce: 'the last line writes itself. ~~she meant herself.~~' },
   ],
 
   presented(p) {
@@ -208,6 +206,7 @@ const pram = {
             ],
             scales: { grip: +1, agitation: +1 },
             composure: -1,
+            composureCost: 'her humming has changed key. ~~it costs.~~',
           };
         }
         if (reps >= 1) {
@@ -242,6 +241,7 @@ const pram = {
             ],
             scales: { agitation: +1, grip: +1 },
             composure: -1,
+            composureCost: 'her arms have closed around the pram. ~~something between us has shut.~~',
           };
         }
         if (reps >= 2) {
@@ -279,6 +279,7 @@ const pram = {
             ],
             scales: { tenderness: -1, agitation: +1 },
             composure: -1,
+            composureCost: 'her face has gone wrong. ~~I can hear the door behind me.~~',
           };
         }
         if (p.scales.grip >= 7) {
@@ -323,6 +324,7 @@ const pram = {
             ],
             scales: { grip: +1, agitation: +1 },
             composure: -1,
+            composureCost: 'I have done something I cannot take back.',
           };
         }
         if (p.scales.grip >= 8) {
@@ -358,6 +360,7 @@ const pram = {
             ],
             scales: { grip: +3, tenderness: -2, agitation: +2 },
             composure: -2,
+            composureCost: 'the rocking is the only sound. it is the worst sound.',
           };
         }
         if (p.scales.grip >= 4) {
@@ -368,6 +371,7 @@ const pram = {
             ],
             scales: { grip: -1, agitation: +1 },
             composure: -1,
+            composureCost: 'the room is fast now. faster than I am.',
           };
         }
         return {
@@ -414,6 +418,7 @@ const pram = {
             ],
             scales: { agitation: +2, lucidity: -1 },
             composure: -1,
+            composureCost: 'her humming has changed key. ~~it costs.~~',
           };
         }
         if (p.scales.grip >= 7) {
@@ -425,6 +430,7 @@ const pram = {
             ],
             scales: { grip: +2, tenderness: -3, agitation: +4, lucidity: -2 },
             composure: -2,
+            composureCost: 'her arms have closed around the pram. ~~something between us has shut.~~',
             flags: { spiked: true },
           };
         }
@@ -461,6 +467,7 @@ const pram = {
             ],
             scales: { agitation: -3, lucidity: +2 },
             composure: -1,
+            composureCost: 'her face has gone wrong. ~~I can hear the door behind me.~~',
           };
         }
         return {
@@ -487,6 +494,7 @@ const pram = {
           ],
           scales: { agitation: -3, tenderness: -1 },
           composure: -2,
+          composureCost: 'I have done something I cannot take back.',
         };
       },
     },
@@ -544,6 +552,7 @@ const pram = {
           ],
           scales: { tenderness: +3, grip: -2, agitation: -1 },
           composure: -1,
+          composureCost: 'the rocking is the only sound. it is the worst sound.',
         },
         {
           label: 'no, I came for someone else',
@@ -605,6 +614,7 @@ const pram = {
           ],
           scales: { lucidity: +1, agitation: +3, grip: +1 },
           composure: -1,
+          composureCost: 'the room is fast now. faster than I am.',
         },
       ],
     },
@@ -637,6 +647,7 @@ const pram = {
           scales: { tenderness: +3, lucidity: -3 },
           scars: ['named'],
           composure: -1,
+          composureCost: 'her humming has changed key. ~~it costs.~~',
         },
         {
           label: 'I\'m here either way',
@@ -669,6 +680,7 @@ const pram = {
           ],
           scales: { lucidity: +3, tenderness: +2, grip: -2 },
           composure: -1,
+          composureCost: 'her arms have closed around the pram. ~~something between us has shut.~~',
         },
         {
           label: 'I don\'t know',
@@ -710,6 +722,7 @@ const pram = {
           ],
           scales: { agitation: -2, tenderness: +1 },
           composure: -1,
+          composureCost: 'her face has gone wrong. ~~I can hear the door behind me.~~',
         },
         {
           label: 'put a hand on hers',
@@ -720,6 +733,7 @@ const pram = {
           ],
           scales: { grip: -2, agitation: -3, lucidity: +1 },
           composure: -1,
+          composureCost: 'I have done something I cannot take back.',
         },
         {
           label: 'say nothing',
@@ -730,6 +744,7 @@ const pram = {
           ],
           scales: { agitation: +1, grip: +1 },
           composure: -2,
+          composureCost: 'the rocking is the only sound. it is the worst sound.',
         },
       ],
     },
@@ -751,6 +766,7 @@ const pram = {
         ],
         scales: { agitation: +2, grip: +1, tenderness: -1 },
         composure: -1,
+        composureCost: 'the room is fast now. faster than I am.',
       };
     }
     if (g >= 7) {
@@ -761,6 +777,7 @@ const pram = {
         ],
         scales: { grip: +1, agitation: +1 },
         composure: -1,
+        composureCost: 'her humming has changed key. ~~it costs.~~',
       };
     }
     if (t >= 5 && g <= 4) {
@@ -795,7 +812,7 @@ const pram = {
         'she puts her hands in her lap. she does not weep. she sits a long time without rocking.',
         '!!something quiet has been done here. she did it.!!',
       ],
-      trait: 'inherited',
+      item: 'worn_ribbon',
     },
     {
       id: 'lets_take',
@@ -806,7 +823,7 @@ const pram = {
         'her hands stay open for a long time after. she does not put them down.',
         'the room is very quiet.',
       ],
-      trait: 'mothering',
+      item: 'handkerchief',
     },
     {
       id: 'broke',
@@ -817,7 +834,7 @@ const pram = {
         'she has gone somewhere I cannot follow. the pram is in her arms still. her hands are the shape of the handle.',
         '!!I close the door behind me. softly. she does not notice.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['witnessed', 'failed'],
     },
     {
@@ -838,7 +855,7 @@ const pram = {
           '!!I close the door behind me. she does not stop rocking.!!',
         ];
       },
-      trait: 'empty_arms',
+      item: 'black_coin',
       scars(p) { return (p.scales.tenderness >= 6 && p.scales.agitation <= 3) ? [] : ['taken']; },
     },
     {
@@ -849,7 +866,7 @@ const pram = {
         'she has been rocking longer than I can stay. the hour has moved without me.',
         'I leave the room. she is still humming. she has not noticed.',
       ],
-      trait: null,
+      item: null,
       scars: ['failed'],
     },
     {
@@ -859,7 +876,7 @@ const pram = {
       lines: [
         'I close the door. she keeps rocking. I do not know if she ever knew I was in the room.',
       ],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -945,19 +962,18 @@ const pyrelord = {
       },
     },
   },
-  initialize(p) {
+  initialize(p, player) {
     p.scales.presence    = r(7, 9);
     p.scales.grief       = r(1, 3);
     p.scales.recognition = 0;
+    if (player?.scars?.includes('named'))    p.scales.presence = Math.min(10, p.scales.presence + 1);
+    if (player?.scars?.includes('witnessed')) p.scales.recognition = Math.max(0, p.scales.recognition - 0);
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.presence <= 6 || p.scales.recognition >= 3,
-      announce: 'a line writes itself in. ~~the room remains his.~~' },
-    { line: 1, when: (p) => p.scales.grief >= 5 && p.scales.recognition >= 3,
-      announce: 'another. ~~since 1986. longer.~~' },
-    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.grief >= 7,
-      announce: 'the last line, in my hand. **he knows their names.**' },
+    { announce: 'a line writes itself in. ~~the room remains his.~~' },
+    { announce: 'another. ~~since 1986. longer.~~' },
+    { announce: 'the last line, in my hand. **he knows their names.**' },
   ],
 
   presented(p) {
@@ -1045,6 +1061,7 @@ const pyrelord = {
             ],
             scales: { presence: +1, grief: +1 },
             composure: -2,
+            composureCost: 'his quiet is the worst sound in the room.',
           };
         }
         return {
@@ -1054,6 +1071,7 @@ const pyrelord = {
           ],
           scales: { recognition: +1, grief: +1 },
           composure: -1,
+          composureCost: 'his hand on my wrist is very cold.',
         };
       },
     },
@@ -1072,6 +1090,7 @@ const pyrelord = {
             ],
             scales: { grief: +2, recognition: -1 },
             composure: -2,
+            composureCost: '!!the chair is larger than it should be.!!',
           };
         }
         if (p.scales.presence >= 7) {
@@ -1082,6 +1101,7 @@ const pyrelord = {
             ],
             scales: { presence: -2, recognition: +1 },
             composure: -1,
+            composureCost: 'I am a guest. I am only a guest.',
           };
         }
         return {
@@ -1125,6 +1145,7 @@ const pyrelord = {
             ],
             scales: { grief: +1, recognition: -1 },
             composure: -1,
+            composureCost: 'the door does not need to be watched. ~~it does anyway.~~',
           };
         }
         if (p.scales.recognition >= 7) {
@@ -1180,6 +1201,7 @@ const pyrelord = {
             ],
             scales: { presence: -5 },
             composure: -1,
+            composureCost: 'he has not blinked. ~~for a long time.~~',
             flags: { sat_in_chair: true },
           };
         }
@@ -1190,6 +1212,7 @@ const pyrelord = {
           ],
           scales: { grief: +1, presence: +1 },
           composure: -1,
+          composureCost: 'his quiet is the worst sound in the room.',
         };
       },
     },
@@ -1210,6 +1233,7 @@ const pyrelord = {
             flags: { closed_eyes: true },
             scales: { presence: -4, grief: -2 },
             composure: -1,
+            composureCost: 'his hand on my wrist is very cold.',
           };
         }
         return {
@@ -1219,6 +1243,7 @@ const pyrelord = {
           ],
           scales: { grief: +1, presence: +1 },
           composure: -1,
+          composureCost: '!!the chair is larger than it should be.!!',
         };
       },
     },
@@ -1251,6 +1276,7 @@ const pyrelord = {
           ],
           scales: { presence: +2, recognition: +1 },
           composure: -1,
+          composureCost: 'I am a guest. I am only a guest.',
         },
         {
           label: 'stay standing',
@@ -1294,6 +1320,7 @@ const pyrelord = {
           ],
           scales: { grief: +3, recognition: +3, presence: -3 },
           composure: -1,
+          composureCost: 'the door does not need to be watched. ~~it does anyway.~~',
         },
         {
           label: 'are you sure?',
@@ -1305,6 +1332,7 @@ const pyrelord = {
           ],
           scales: { grief: +2, presence: -2 },
           composure: -2,
+          composureCost: 'he has not blinked. ~~for a long time.~~',
         },
         {
           label: 'I think you did',
@@ -1358,6 +1386,7 @@ const pyrelord = {
           ],
           scales: { grief: +4, presence: -4 },
           composure: -1,
+          composureCost: 'his quiet is the worst sound in the room.',
         },
       ],
     },
@@ -1380,6 +1409,7 @@ const pyrelord = {
           ],
           scales: { presence: +1, grief: +1, recognition: -1 },
           composure: -1,
+          composureCost: 'his hand on my wrist is very cold.',
         },
         {
           label: 'there is no clerk',
@@ -1391,6 +1421,7 @@ const pyrelord = {
           ],
           scales: { presence: -3, recognition: +2, grief: +2 },
           composure: -1,
+          composureCost: '!!the chair is larger than it should be.!!',
         },
         {
           label: 'who was Hargrove',
@@ -1435,6 +1466,7 @@ const pyrelord = {
           ],
           scales: { presence: -3, grief: +3, recognition: +1 },
           composure: -2,
+          composureCost: 'I am a guest. I am only a guest.',
         },
         {
           label: 'tell me their names',
@@ -1482,7 +1514,7 @@ const pyrelord = {
         'the room is a room. the chair is just a chair.',
         '!!the door does not need to be watched.!!',
       ],
-      trait: 'vessel_for_ghosts',
+      item: 'small_bell',
     },
     {
       id: 'name_kept',
@@ -1493,7 +1525,7 @@ const pyrelord = {
         'I leave the room with the name in my mouth. he sits very still in the chair.',
         '!!the wall keeps it.!!',
       ],
-      trait: 'forgotten_name',
+      item: 'scrap_of_paper',
     },
     {
       id: 'took_chair',
@@ -1503,7 +1535,7 @@ const pyrelord = {
         'the chair fits. the room is mine. he is on the floor still.',
         'he calls me sir, once, without irony. ~~I do not~~ I do not correct him.',
       ],
-      trait: 'dominion',
+      item: 'ink_bottle',
       scars: ['named'],
     },
     {
@@ -1514,7 +1546,7 @@ const pyrelord = {
         'he is in the chair. he has always been in the chair. I cannot find an edge to begin from.',
         '!!I leave him to it. the door is heavier than I expected.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['failed'],
     },
     {
@@ -1522,7 +1554,7 @@ const pyrelord = {
       when: (p) => p.flags.left,
       title: 'you walk out',
       lines: ['I close the door. he was speaking when I left. ~~he kept speaking.~~ he kept speaking.'],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -1617,12 +1649,9 @@ const soothlick = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.sight >= 3 || p.scales.trust >= 4,
-      announce: 'a line of her file fills in. ~~thirty-eight years.~~' },
-    { line: 1, when: (p) => p.scales.sight >= 5 && p.scales.tending >= 4,
-      announce: 'another line. **she does not turn the door handle.**' },
-    { line: 2, when: (p) => p.scales.sight >= 7 || (p.scales.sight >= 5 && p.scales.trust >= 6),
-      announce: 'the last line. ~~they do not wake all the way.~~' },
+    { announce: 'a line of her file fills in. ~~thirty-eight years.~~' },
+    { announce: 'another line. **she does not turn the door handle.**' },
+    { announce: 'the last line. ~~they do not wake all the way.~~' },
   ],
 
   presented(p) {
@@ -1654,7 +1683,7 @@ const soothlick = {
       label: 'refuse quietly',
       desc: 'shake your head. wave her off. don\'t take what she\'s offering.',
       respond(p, player) {
-        const sleepless = player.traits?.includes('sleepless');
+        const sleepless = (p.flags.glass_clutched || player.items?.includes('sliver_of_glass'));
         const reps = streakCount(p, 'refuse_quietly');
         if (reps >= 2) {
           return {
@@ -1664,6 +1693,7 @@ const soothlick = {
             ],
             playerEffects: sleepless ? {} : { drowsing: +1 },
             composure: -1,
+            composureCost: 'her humming is the sound the room makes. ~~I am tired.~~',
           };
         }
         return {
@@ -1682,7 +1712,7 @@ const soothlick = {
       label: 'sit up straighter',
       desc: 'visible alertness. effortful.',
       respond(p, player) {
-        const sleepless = player.traits?.includes('sleepless');
+        const sleepless = (p.flags.glass_clutched || player.items?.includes('sliver_of_glass'));
         const reps = streakCount(p, 'sit_up');
         if (reps >= 2) {
           return {
@@ -1692,6 +1722,7 @@ const soothlick = {
             ],
             scales: { sight: +1 },
             composure: -1,
+            composureCost: 'the dark window is the loudest thing here.',
           };
         }
         return {
@@ -1710,7 +1741,7 @@ const soothlick = {
       desc: 'close your eyes a moment. let her smooth the sheet.',
       when: (p) => p.scales.tending >= 4,
       respond(p, player) {
-        const sleepless = player.traits?.includes('sleepless');
+        const sleepless = (p.flags.glass_clutched || player.items?.includes('sliver_of_glass'));
         const reps = streakCount(p, 'accept_tending');
         if (reps >= 1) {
           return {
@@ -1752,6 +1783,7 @@ const soothlick = {
             ],
             scales: { sight: +3, tending: -2 },
             composure: -1,
+            composureCost: '!!I should not have done that.!!',
           };
         }
         if (p.scales.sight >= 3) {
@@ -1788,6 +1820,7 @@ const soothlick = {
           scales: { sight: +3, tending: +2 },
           playerEffects: { drowsing: -2 },
           composure: -2,
+          composureCost: 'her hand is cool. ~~I do not~~ I do not move away.',
           scars: ['witnessed'],
           shake: true,
         };
@@ -1799,7 +1832,7 @@ const soothlick = {
       desc: 'use the name on her file. not "nurse".',
       when: (p) => p.scales.sight >= 3 && p.scales.trust >= 3,
       respond(p, player) {
-        const r_ = player.traits?.includes('remembered');
+        const r_ = player.items?.includes('scrap_of_paper');
         if (r_) {
           return {
             lines: [
@@ -1902,6 +1935,7 @@ const soothlick = {
           ],
           scales: { sight: +3, trust: +2, tending: -3 },
           composure: -1,
+          composureCost: 'the corner of the sheet is not right. ~~I cannot~~ I cannot fix it.',
         },
       ],
     },
@@ -1924,6 +1958,7 @@ const soothlick = {
           ],
           scales: { sight: +3, trust: +2, tending: -4 },
           composure: -1,
+          composureCost: 'I have been a patient too long.',
         },
         {
           label: 'it doesn\'t matter',
@@ -1966,6 +2001,7 @@ const soothlick = {
           ],
           scales: { trust: +3, sight: +2, tending: -3 },
           composure: -1,
+          composureCost: 'her humming is the sound the room makes. ~~I am tired.~~',
           flags: { kept_vigil: true },
         },
         {
@@ -2026,6 +2062,7 @@ const soothlick = {
           ],
           scales: { sight: +4, tending: -3, trust: -1 },
           composure: -2,
+          composureCost: 'the dark window is the loudest thing here.',
         },
       ],
     },
@@ -2059,6 +2096,7 @@ const soothlick = {
           ],
           scales: { sight: +3, tending: -4 },
           composure: -1,
+          composureCost: '!!I should not have done that.!!',
         },
         {
           label: 'who\'s home',
@@ -2074,7 +2112,7 @@ const soothlick = {
   ],
 
   drift(p, player) {
-    const sleepless = player.traits?.includes('sleepless');
+    const sleepless = (p.flags.glass_clutched || player.items?.includes('sliver_of_glass'));
     if (!sleepless) {
       p.playerEffects.drowsing = Math.min(8, (p.playerEffects.drowsing || 0) + 1);
     }
@@ -2087,6 +2125,7 @@ const soothlick = {
         ],
         scales: { tending: +1 },
         composure: -1,
+        composureCost: 'her hand is cool. ~~I do not~~ I do not move away.',
       };
     }
     if (dr >= 4) {
@@ -2096,6 +2135,7 @@ const soothlick = {
         ],
         scales: { tending: +1 },
         composure: -1,
+        composureCost: 'the corner of the sheet is not right. ~~I cannot~~ I cannot fix it.',
       };
     }
     return {
@@ -2114,7 +2154,7 @@ const soothlick = {
         '~~I~~ I close my eyes. when I open them I am still here. ~~but I have~~ but I have lost something I cannot find again.',
         '!!I do not know how long I was gone.!!',
       ],
-      trait: 'calming',
+      item: 'vial',
       scars: ['witnessed'],
     },
     {
@@ -2126,7 +2166,7 @@ const soothlick = {
         'we straighten sheets for someone who is not in the bed. it takes a long time. ~~hours.~~ hours.',
         '!!she lets me leave when the light comes back.!!',
       ],
-      trait: 'vigilant',
+      item: 'small_bell',
     },
     {
       id: 'woken',
@@ -2137,7 +2177,7 @@ const soothlick = {
         'she says: ~~I should have gone home~~ I should have gone home.',
         'she sits down on the floor. she does not put down the tray.',
       ],
-      trait: 'sleepless',
+      item: 'sliver_of_glass',
     },
     {
       id: 'too_long',
@@ -2147,7 +2187,7 @@ const soothlick = {
         'she works around me. I am one of the things she is straightening tonight.',
         '!!I leave before she finishes.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['failed'],
     },
     {
@@ -2157,7 +2197,7 @@ const soothlick = {
       lines: [
         'I close the door. she is still straightening the sheet. ~~for someone who is not~~ for someone.',
       ],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -2244,19 +2284,17 @@ const glimmer = {
       },
     },
   },
-  initialize(p) {
+  initialize(p, player) {
     p.scales.stare    = r(7, 9);
     p.scales.pressure = r(1, 3);
     p.scales.present  = 0;
+    if (player?.scars?.includes('taken')) p.scales.pressure = Math.min(10, p.scales.pressure + 1);
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.present >= 2 || p.scales.stare <= 5,
-      announce: 'a line of his file fills in. ~~he was eight when it ran into the road.~~' },
-    { line: 1, when: (p) => p.scales.present >= 4 && p.scales.pressure <= 4,
-      announce: '**he watched. the rest of the family looked away.**' },
-    { line: 2, when: (p) => p.scales.present >= 6 || p.scales.stare <= 2,
-      announce: 'the last line, in my hand. ~~it has been forty years.~~' },
+    { announce: 'a line of his file fills in. ~~he was eight when it ran into the road.~~' },
+    { announce: '**he watched. the rest of the family looked away.**' },
+    { announce: 'the last line, in my hand. ~~it has been forty years.~~' },
   ],
 
   presented(p) {
@@ -2296,6 +2334,7 @@ const glimmer = {
             ],
             scales: { present: +1, pressure: +1 },
             composure: -1,
+            composureCost: 'his small hand on my sleeve. ~~it is small.~~',
           };
         }
         return {
@@ -2321,6 +2360,7 @@ const glimmer = {
             ],
             scales: { present: +2, stare: -2, pressure: -1 },
             composure: -2,
+            composureCost: 'I am looking at the door. I am not looking away.',
           };
         }
         return {
@@ -2332,6 +2372,7 @@ const glimmer = {
           ],
           scales: { present: +3, pressure: +1 },
           composure: -1,
+          composureCost: 'the question is still in his mouth. ~~louder.~~',
         };
       },
     },
@@ -2359,6 +2400,7 @@ const glimmer = {
           ],
           scales: { pressure: +2, stare: +1 },
           composure: -1,
+          composureCost: 'his eyes have not blinked. mine have begun to hurt.',
         };
       },
     },
@@ -2379,6 +2421,7 @@ const glimmer = {
             ],
             scales: { present: +3, pressure: -5, stare: -3 },
             composure: -1,
+            composureCost: 'I have seen what he saw. ~~I cannot~~ I cannot unsee it.',
           };
         }
         return {
@@ -2388,6 +2431,7 @@ const glimmer = {
           ],
           scales: { pressure: +2, present: -1 },
           composure: -2,
+          composureCost: '!!I am answering nothing.!!',
         };
       },
     },
@@ -2431,6 +2475,7 @@ const glimmer = {
           ],
           scales: { present: +3, stare: -2, pressure: -2 },
           composure: -1,
+          composureCost: 'his small hand on my sleeve. ~~it is small.~~',
         };
       },
     },
@@ -2478,6 +2523,7 @@ const glimmer = {
           ],
           scales: { present: +4, pressure: -4, stare: -3 },
           composure: -1,
+          composureCost: 'I am looking at the door. I am not looking away.',
         },
         {
           label: 'I see now',
@@ -2537,6 +2583,7 @@ const glimmer = {
           ],
           scales: { present: +2, pressure: -3 },
           composure: -1,
+          composureCost: 'the question is still in his mouth. ~~louder.~~',
         },
       ],
     },
@@ -2569,6 +2616,7 @@ const glimmer = {
           ],
           scales: { stare: -1, pressure: -1, present: +2 },
           composure: -1,
+          composureCost: 'his eyes have not blinked. mine have begun to hurt.',
         },
         {
           label: 'where is home',
@@ -2580,6 +2628,7 @@ const glimmer = {
           ],
           scales: { present: +3, pressure: -2 },
           composure: -2,
+          composureCost: 'I have seen what he saw. ~~I cannot~~ I cannot unsee it.',
         },
       ],
     },
@@ -2603,6 +2652,7 @@ const glimmer = {
           scales: { stare: +1, pressure: -2 },
           scars: ['named'],
           composure: -1,
+          composureCost: '!!I am answering nothing.!!',
         },
         {
           label: 'she came back',
@@ -2613,6 +2663,7 @@ const glimmer = {
           ],
           scales: { pressure: -1, stare: -1, present: +1 },
           composure: -1,
+          composureCost: 'his small hand on my sleeve. ~~it is small.~~',
         },
         {
           label: 'I\'ll stay',
@@ -2623,6 +2674,7 @@ const glimmer = {
           ],
           scales: { present: +3, stare: -2, pressure: -1 },
           composure: -1,
+          composureCost: 'I am looking at the door. I am not looking away.',
         },
       ],
     },
@@ -2638,6 +2690,7 @@ const glimmer = {
         ],
         scales: { pressure: +1, stare: +1 },
         composure: -1,
+        composureCost: 'the question is still in his mouth. ~~louder.~~',
       };
     }
     if (p.scales.pressure >= 4) {
@@ -2648,6 +2701,7 @@ const glimmer = {
         ],
         scales: { stare: +1 },
         composure: -1,
+        composureCost: 'his eyes have not blinked. mine have begun to hurt.',
       };
     }
     return {
@@ -2665,7 +2719,7 @@ const glimmer = {
         'he is leaning against my arm. his eyes are closed. it is the first time in a long time.',
         'I do not move. I do not want to be the one who makes him open them.',
       ],
-      trait: 'unblinking',
+      item: 'photograph',
     },
     {
       id: 'answered',
@@ -2675,7 +2729,7 @@ const glimmer = {
         'he is crying. he is eight. eight, finally. ~~for the first time~~ for the first time.',
         '!!the room has aged forty years in a minute.!!',
       ],
-      trait: 'remembered',
+      item: 'scrap_of_paper',
     },
     {
       id: 'witnessed_with',
@@ -2686,7 +2740,7 @@ const glimmer = {
         'I do not know how long. I keep what we saw. he sets his head against my arm.',
         '!!I am the one who saw it now. it is in me.!!',
       ],
-      trait: 'redacted',
+      item: 'ink_bottle',
       scars: ['witnessed'],
     },
     {
@@ -2697,7 +2751,7 @@ const glimmer = {
         'the question is the loudest thing in the room. it is louder than I am.',
         '!!I have to leave before he asks it out loud.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['witnessed', 'failed'],
     },
     {
@@ -2705,7 +2759,7 @@ const glimmer = {
       when: (p) => p.flags.left,
       title: 'you walk out',
       lines: ['I close the door behind me. ~~he was watching~~ he is watching the door I came through.'],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -2809,20 +2863,19 @@ const frostfin = {
       },
     },
   },
-  initialize(p) {
+  initialize(p, player) {
     p.scales.cold    = r(4, 6);
     p.scales.waiting = r(7, 9);
     p.scales.recognition = 0;
     p.scales.warmth = 0;
+    if (player?.scars?.includes('taken')) p.scales.warmth = Math.max(0, p.scales.warmth - 1);
+    if (player?.scars?.includes('named')) p.scales.waiting = Math.min(10, p.scales.waiting + 1);
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.recognition >= 3 || p.scales.warmth >= 3,
-      announce: 'a line of her file fills in. ~~the bench outside the train station.~~' },
-    { line: 1, when: (p) => p.scales.recognition >= 5 && p.scales.warmth >= 3,
-      announce: 'another. ~~her son said he would come.~~' },
-    { line: 2, when: (p) => p.scales.warmth >= 7 || (p.scales.warmth >= 5 && p.scales.recognition >= 6),
-      announce: 'the last line. **staff do not hold them long.**' },
+    { announce: 'a line of her file fills in. ~~the bench outside the train station.~~' },
+    { announce: 'another. ~~her son said he would come.~~' },
+    { announce: 'the last line. **staff do not hold them long.**' },
   ],
 
   presented(p) {
@@ -2863,6 +2916,7 @@ const frostfin = {
             ],
             scales: { warmth: +2, recognition: +1, waiting: -1 },
             composure: -1,
+            composureCost: 'the cold is in my fingers now.',
           };
         }
         if (p.scales.waiting >= 7) {
@@ -2873,6 +2927,7 @@ const frostfin = {
             ],
             scales: { warmth: +1, waiting: -1 },
             composure: -1,
+            composureCost: 'my breath is visible. hers is not.',
           };
         }
         return {
@@ -2923,6 +2978,7 @@ const frostfin = {
           ],
           scales: { warmth: +2, recognition: +2, waiting: -1 },
           composure: -1,
+          composureCost: 'the bench is colder than the floor.',
         };
       },
     },
@@ -2932,7 +2988,7 @@ const frostfin = {
       desc: 'the one she is waiting for.',
       when: (p) => p.scales.recognition >= 4,
       respond(p, player) {
-        const r_ = player.traits?.includes('remembered');
+        const r_ = player.items?.includes('scrap_of_paper');
         if (r_) {
           return {
             lines: [
@@ -2942,6 +2998,7 @@ const frostfin = {
             ],
             scales: { recognition: +3, waiting: -3, warmth: +1 },
             composure: -1,
+            composureCost: '!!I am waiting too.!!',
           };
         }
         if (p.scales.recognition >= 5) {
@@ -2953,6 +3010,7 @@ const frostfin = {
             ],
             scales: { recognition: +2, waiting: -3 },
             composure: -1,
+            composureCost: 'her hand is the same temperature as the room.',
             scars: ['named'],
           };
         }
@@ -2963,6 +3021,7 @@ const frostfin = {
           ],
           scales: { recognition: +1, warmth: -1 },
           composure: -1,
+          composureCost: 'the door is heavier than I expected.',
         };
       },
     },
@@ -2981,6 +3040,7 @@ const frostfin = {
           ],
           scales: { waiting: -5, warmth: +3 },
           composure: -2,
+          composureCost: 'the cold is in my fingers now.',
           scars: ['named'],
           flags: { lied: true },
         };
@@ -3054,6 +3114,7 @@ const frostfin = {
           ],
           scales: { recognition: +2, waiting: +1 },
           composure: -1,
+          composureCost: 'my breath is visible. hers is not.',
         },
         {
           label: 'I don\'t think it\'s coming',
@@ -3065,6 +3126,7 @@ const frostfin = {
           ],
           scales: { recognition: +3, waiting: -4, warmth: +1, cold: +1 },
           composure: -2,
+          composureCost: 'the bench is colder than the floor.',
         },
       ],
     },
@@ -3086,6 +3148,7 @@ const frostfin = {
           ],
           scales: { recognition: +3, warmth: -1, cold: +1 },
           composure: -1,
+          composureCost: '!!I am waiting too.!!',
         },
         {
           label: 'I am the one who came',
@@ -3126,6 +3189,7 @@ const frostfin = {
           ],
           scales: { waiting: +1, recognition: +1, cold: +1 },
           composure: -1,
+          composureCost: 'her hand is the same temperature as the room.',
         },
         {
           label: 'we have time',
@@ -3146,6 +3210,7 @@ const frostfin = {
           ],
           scales: { waiting: -3, recognition: +2, warmth: +1, cold: +1 },
           composure: -2,
+          composureCost: 'the door is heavier than I expected.',
         },
       ],
     },
@@ -3167,6 +3232,7 @@ const frostfin = {
           ],
           scales: { warmth: +3, waiting: -2, recognition: +1 },
           composure: -1,
+          composureCost: 'the cold is in my fingers now.',
         },
         {
           label: 'only a while',
@@ -3186,6 +3252,7 @@ const frostfin = {
           ],
           scales: { warmth: -2, cold: +1, waiting: +2 },
           composure: -2,
+          composureCost: 'my breath is visible. hers is not.',
         },
       ],
     },
@@ -3199,6 +3266,7 @@ const frostfin = {
         ],
         scales: { cold: +1, waiting: +1 },
         composure: -1,
+        composureCost: 'the bench is colder than the floor.',
       };
     }
     if (p.scales.waiting >= 6) {
@@ -3208,6 +3276,7 @@ const frostfin = {
         ],
         scales: { cold: +1, waiting: +1 },
         composure: -1,
+        composureCost: '!!I am waiting too.!!',
       };
     }
     return {
@@ -3226,7 +3295,7 @@ const frostfin = {
         'we sit a long time. the room warms by a degree. ~~the door does not~~ the door does not open.',
         'eventually she pats my hand. that is the ending. ~~for both of us.~~',
       ],
-      trait: 'patience',
+      item: 'worn_ribbon',
     },
     {
       id: 'walked_out',
@@ -3236,7 +3305,7 @@ const frostfin = {
         'she lets me walk her out of the room. she takes my arm tighter when we reach the door.',
         '!!she does not look at me close. she does not look close at all.!!',
       ],
-      trait: 'cold_hands',
+      item: 'handkerchief',
       scars: ['named'],
     },
     {
@@ -3247,7 +3316,7 @@ const frostfin = {
         'the room is very cold. ~~I am~~ I am very tired. I sit down on the bench. she does not look at me.',
         '!!I do not know which of us is waiting now.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['collapsed'],
     },
     {
@@ -3258,7 +3327,7 @@ const frostfin = {
         'she has been waiting longer than I can be a guest. ~~he~~ he is not coming.',
         '!!I leave her on the bench.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['failed'],
     },
     {
@@ -3266,7 +3335,7 @@ const frostfin = {
       when: (p) => p.flags.left,
       title: 'you walk out',
       lines: ['I close the door. she is on the bench. ~~she does not~~ she does not look up.'],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -3374,20 +3443,17 @@ const choir = {
     },
   },
   initialize(p, player) {
-    const traits = player.traits?.length || 0;
-    p.scales.chord = 3 + Math.min(3, Math.floor(traits / 2));
+    const carried = player.items?.length || 0;
+    p.scales.chord = 3 + Math.min(3, Math.floor(carried / 2));
     p.scales.voice = 0;
     p.scales.self = 10;
     p.scales.recognition = 0;
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.recognition >= 2 || p.scales.chord >= 4,
-      announce: 'a line of the file fills in. ~~there is a room I have not been in.~~' },
-    { line: 1, when: (p) => p.scales.recognition >= 5,
-      announce: '**every patient I have met. and others I have not.**' },
-    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.voice >= 4,
-      announce: '!!they have been singing the whole time.!!' },
+    { announce: 'a line of the file fills in. ~~there is a room I have not been in.~~' },
+    { announce: '**every patient I have met. and others I have not.**' },
+    { announce: '!!they have been singing the whole time.!!' },
   ],
 
   presented(p) {
@@ -3428,6 +3494,7 @@ const choir = {
             ],
             scales: { self: -1, recognition: +2 },
             composure: -1,
+            composureCost: '~~my voice~~ my voice is in the chord. I did not start.',
           };
         }
         return {
@@ -3451,6 +3518,7 @@ const choir = {
           ],
           scales: { recognition: +3, self: -1 },
           composure: -1,
+          composureCost: 'I am thinner than I was.',
           flags: { found_voice: true },
         };
       },
@@ -3469,6 +3537,7 @@ const choir = {
             ],
             scales: { voice: +3, chord: +2, self: -2 },
             composure: -1,
+            composureCost: '!!I am being learned.!!',
           };
         }
         return {
@@ -3519,6 +3588,7 @@ const choir = {
             ],
             scales: { self: -1, recognition: -1 },
             composure: -2,
+            composureCost: 'one of them sounds like me. all of them do, in the right light.',
             scars: ['witnessed'],
           };
         }
@@ -3568,6 +3638,7 @@ const choir = {
           lines: [m[0], m[1]],
           scales: { recognition: +2, self: -1 },
           composure: -1,
+          composureCost: 'the door is open. ~~from inside.~~',
         };
       },
     },
@@ -3599,6 +3670,7 @@ const choir = {
           ],
           scales: { voice: +4, chord: +3, self: -3 },
           composure: -2,
+          composureCost: 'I have been here longer than I came in for.',
         },
         {
           label: 'no',
@@ -3647,6 +3719,7 @@ const choir = {
           ],
           scales: { voice: +2, chord: +1, self: -1 },
           composure: -1,
+          composureCost: '~~my voice~~ my voice is in the chord. I did not start.',
         },
         {
           label: 'I came to take mine out',
@@ -3686,6 +3759,7 @@ const choir = {
           ],
           scales: { recognition: +1, voice: +1, self: -1 },
           composure: -1,
+          composureCost: 'I am thinner than I was.',
         },
         {
           label: 'I don\'t remember',
@@ -3696,6 +3770,7 @@ const choir = {
           ],
           scales: { voice: +3, chord: +2, self: -2 },
           composure: -1,
+          composureCost: '!!I am being learned.!!',
         },
       ],
     },
@@ -3717,6 +3792,7 @@ const choir = {
           ],
           scales: { voice: +3, chord: +2, self: -2 },
           composure: -2,
+          composureCost: 'one of them sounds like me. all of them do, in the right light.',
         },
         {
           label: 'I do not know you',
@@ -3737,6 +3813,7 @@ const choir = {
           ],
           scales: { recognition: +3, self: -1 },
           composure: -1,
+          composureCost: 'the door is open. ~~from inside.~~',
         },
       ],
     },
@@ -3751,12 +3828,14 @@ const choir = {
         ],
         scales: { self: -1, voice: +1, chord: +1 },
         composure: -1,
+        composureCost: 'I have been here longer than I came in for.',
       };
     }
     return {
       lines: ['I wait. the choir hums. ~~one voice~~ one voice sounds like mine. it always has.'],
       scales: { chord: +1, voice: +1 },
       composure: -1,
+      composureCost: '~~my voice~~ my voice is in the chord. I did not start.',
     };
   },
 
@@ -3770,7 +3849,7 @@ const choir = {
         'I walk past them down the corridor. they continue without me. they always did.',
         'I take the stairs.',
       ],
-      trait: 'sleepless',
+      item: 'sliver_of_glass',
     },
     {
       id: 'shut_out',
@@ -3781,7 +3860,7 @@ const choir = {
         'I walk back the way I came. ~~the corridor is~~ a different corridor.',
         'I leave my file at the desk. the nurse takes it without looking up.',
       ],
-      trait: 'unfinished',
+      item: 'ink_bottle',
     },
     {
       id: 'joined',
@@ -3792,7 +3871,7 @@ const choir = {
         'the room is full of me. there are many of me. I am no longer ~~looking out from~~ I am no longer looking out.',
         '!!the door is open. someone outside is being admitted.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['collapsed'],
     },
     {
@@ -3802,7 +3881,7 @@ const choir = {
       lines: [
         'I am thinner than I should be. the choir has not noticed I am gone. ~~or that I was ever~~ or that I was ever here.',
       ],
-      trait: null,
+      item: null,
       scars: ['collapsed'],
     },
   ],
@@ -3915,12 +3994,9 @@ const hollow = {
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.recognition >= 3 || p.scales.grief >= 4,
-      announce: 'a line of her file fills in. ~~her daughter.~~ ~~the one she came in with.~~' },
-    { line: 1, when: (p) => p.scales.recognition >= 5 && p.scales.insistence <= 5,
-      announce: '**the room next door is empty.**' },
-    { line: 2, when: (p) => p.scales.recognition >= 7 || p.scales.grief >= 7,
-      announce: 'the last line, in my hand. ~~she gave the orderly\'s name.~~' },
+    { announce: 'a line of her file fills in. ~~her daughter.~~ ~~the one she came in with.~~' },
+    { announce: '**the room next door is empty.**' },
+    { announce: 'the last line, in my hand. ~~she gave the orderly\'s name.~~' },
   ],
 
   presented(p) {
@@ -3960,6 +4036,7 @@ const hollow = {
             ],
             scales: { insistence: +2, recognition: -1 },
             composure: -2,
+            composureCost: 'her hand is around my arm. it has not let go.',
             scars: ['named'],
           };
         }
@@ -3972,6 +4049,7 @@ const hollow = {
             ],
             scales: { grief: -1, insistence: +1 },
             composure: -1,
+            composureCost: 'I have been her daughter a while now.',
           };
         }
         return {
@@ -4014,6 +4092,7 @@ const hollow = {
             ],
             scales: { panic: +3, recognition: -1 },
             composure: -2,
+            composureCost: 'her breath has changed. ~~she has heard~~ she has heard something.',
           };
         }
         if (p.scales.recognition >= 6) {
@@ -4026,6 +4105,7 @@ const hollow = {
             ],
             scales: { insistence: -4, recognition: +3, grief: +2 },
             composure: -1,
+            composureCost: '!!I have given her something I am not.!!',
           };
         }
         return {
@@ -4036,6 +4116,7 @@ const hollow = {
           ],
           scales: { recognition: +1, panic: +2 },
           composure: -1,
+          composureCost: 'I have been telling her a week I did not have.',
         };
       },
     },
@@ -4072,7 +4153,7 @@ const hollow = {
       desc: 'use her own — the one on her file.',
       when: (p) => p.scales.recognition >= 4,
       respond(p, player) {
-        const r_ = player.traits?.includes('remembered');
+        const r_ = player.items?.includes('scrap_of_paper');
         if (r_) {
           return {
             lines: [
@@ -4178,6 +4259,7 @@ const hollow = {
           ],
           scales: { panic: -4, insistence: +1 },
           composure: -1,
+          composureCost: 'her face has shut.',
         },
         {
           label: 'I\'ll come back',
@@ -4219,6 +4301,7 @@ const hollow = {
           ],
           scales: { grief: +3, recognition: +1, insistence: -1 },
           composure: -1,
+          composureCost: 'her hand is around my arm. it has not let go.',
         },
         {
           label: 'I wasn\'t',
@@ -4238,6 +4321,7 @@ const hollow = {
           ],
           scales: { grief: +3, recognition: +2 },
           composure: -1,
+          composureCost: 'I have been her daughter a while now.',
         },
       ],
     },
@@ -4260,6 +4344,7 @@ const hollow = {
           ],
           scales: { grief: +3, recognition: +1, insistence: -2 },
           composure: -1,
+          composureCost: 'her breath has changed. ~~she has heard~~ she has heard something.',
         },
         {
           label: 'how small',
@@ -4271,6 +4356,7 @@ const hollow = {
           ],
           scales: { grief: +3, recognition: +2 },
           composure: -1,
+          composureCost: '!!I have given her something I am not.!!',
         },
         {
           label: 'change the subject',
@@ -4281,6 +4367,7 @@ const hollow = {
           ],
           scales: { grief: -2, insistence: +2, panic: +1 },
           composure: -1,
+          composureCost: 'I have been telling her a week I did not have.',
         },
       ],
     },
@@ -4295,6 +4382,7 @@ const hollow = {
         ],
         scales: { insistence: +1 },
         composure: -1,
+        composureCost: 'her face has shut.',
       };
     }
     if (p.scales.recognition >= 4) {
@@ -4320,7 +4408,7 @@ const hollow = {
         'I write the name in my file. I will say it to other people who ought to know it.',
         '~~it is mine~~ it is hers. it is mine to carry.',
       ],
-      trait: 'remembered',
+      item: 'scrap_of_paper',
     },
     {
       id: 'truth_told',
@@ -4330,7 +4418,7 @@ const hollow = {
         'she has heard me. she has known a while. she sits with it.',
         'she says her own name out loud. ~~one~~ once. softly. she has not said it in a long time.',
       ],
-      trait: 'redacted',
+      item: 'ink_bottle',
     },
     {
       id: 'i_am_her',
@@ -4341,7 +4429,7 @@ const hollow = {
         '!!she is at peace.!! she has not been at peace since.',
         'I leave the room with the things she has given me. ~~they are not~~ they are mine now.',
       ],
-      trait: 'faithful',
+      item: 'photograph',
       scars: ['named'],
     },
     {
@@ -4352,7 +4440,7 @@ const hollow = {
         'her face has shut. she does not see me anymore. she is afraid in a way I cannot reach.',
         '!!I leave the room. she does not notice.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['witnessed', 'failed'],
     },
     {
@@ -4360,7 +4448,7 @@ const hollow = {
       when: (p) => p.flags.left,
       title: 'you walk out',
       lines: ['I close the door. ~~she does not~~ she is still saying the name she calls me.'],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -4461,20 +4549,19 @@ const mire = {
       },
     },
   },
-  initialize(p) {
+  initialize(p, player) {
     p.scales.approach = 0;
     p.scales.pond = r(2, 4);
     p.scales.recognition = 0;
     p.scales.release = 0;
+    if (player?.scars?.includes('taken')) p.scales.approach = Math.min(10, p.scales.approach + 1);
+    if (player?.scars?.includes('named')) p.scales.approach = Math.min(10, p.scales.approach + 1);
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.pond >= 4 || p.scales.recognition >= 3,
-      announce: 'a line of her file fills in. ~~there is no pond on the grounds.~~' },
-    { line: 1, when: (p) => p.scales.release >= 4 || p.scales.recognition >= 5,
-      announce: '~~the statue.~~ ~~none on file.~~' },
-    { line: 2, when: (p) => p.scales.release >= 7 || (p.scales.release >= 5 && p.scales.recognition >= 5),
-      announce: 'the last line. **she put something in a pond, once.**' },
+    { announce: 'a line of her file fills in. ~~there is no pond on the grounds.~~' },
+    { announce: '~~the statue.~~ ~~none on file.~~' },
+    { announce: 'the last line. **she put something in a pond, once.**' },
   ],
 
   presented(p) {
@@ -4515,6 +4602,7 @@ const mire = {
             ],
             scales: { approach: +2, pond: +2 },
             composure: -1,
+            composureCost: 'the floor is wet to my ankles.',
           };
         }
         if (p.scales.pond <= 3) {
@@ -4550,6 +4638,7 @@ const mire = {
             ],
             scales: { approach: -1, pond: +1 },
             composure: -2,
+            composureCost: 'the room is wetter than the corridor. by a degree.',
           };
         }
         return {
@@ -4559,6 +4648,7 @@ const mire = {
           ],
           scales: { approach: -2, recognition: +1 },
           composure: -1,
+          composureCost: 'her hand on my collar was warm.',
         };
       },
     },
@@ -4568,7 +4658,7 @@ const mire = {
       desc: 'what was at the edge of the pond? a stone? a person?',
       when: (p) => p.scales.pond >= 3,
       respond(p, player) {
-        const r_ = player.traits?.includes('remembered');
+        const r_ = player.items?.includes('scrap_of_paper');
         if (r_) {
           return {
             lines: [
@@ -4578,6 +4668,7 @@ const mire = {
             ],
             scales: { release: +3, pond: +1, recognition: +1 },
             composure: -1,
+            composureCost: '!!I have answered her too well.!!',
           };
         }
         if (p.scales.pond >= 5) {
@@ -4624,6 +4715,7 @@ const mire = {
           ],
           scales: { release: +3, pond: +1, recognition: +1 },
           composure: -1,
+          composureCost: 'the carpet is gone under me.',
         };
       },
     },
@@ -4640,6 +4732,7 @@ const mire = {
           ],
           scales: { recognition: +3, pond: -1 },
           composure: -1,
+          composureCost: 'I should not have told her where the pond is.',
         };
       },
     },
@@ -4671,6 +4764,7 @@ const mire = {
           ],
           scales: { recognition: +3, release: +2, approach: -2 },
           composure: -2,
+          composureCost: 'the floor is wet to my ankles.',
         };
       },
     },
@@ -4711,6 +4805,7 @@ const mire = {
           ],
           scales: { release: +3, pond: +1 },
           composure: -1,
+          composureCost: 'the room is wetter than the corridor. by a degree.',
         },
         {
           label: 'tell me about him',
@@ -4743,6 +4838,7 @@ const mire = {
           ],
           scales: { approach: -5, recognition: +3, release: +1 },
           composure: -1,
+          composureCost: 'her hand on my collar was warm.',
         },
         {
           label: 'no',
@@ -4754,6 +4850,7 @@ const mire = {
           ],
           scales: { approach: -3, recognition: +2, pond: +1 },
           composure: -1,
+          composureCost: '!!I have answered her too well.!!',
         },
         {
           label: 'I can\'t',
@@ -4785,6 +4882,7 @@ const mire = {
           ],
           scales: { release: +3, recognition: +1, pond: +1 },
           composure: -1,
+          composureCost: 'the carpet is gone under me.',
         },
         {
           label: 'I don\'t know',
@@ -4805,6 +4903,7 @@ const mire = {
           ],
           scales: { release: +4, recognition: +2, pond: +2 },
           composure: -2,
+          composureCost: 'I should not have told her where the pond is.',
         },
       ],
     },
@@ -4836,6 +4935,7 @@ const mire = {
           ],
           scales: { release: +3, recognition: +2 },
           composure: -1,
+          composureCost: 'the floor is wet to my ankles.',
         },
         {
           label: 'it doesn\'t matter',
@@ -4858,6 +4958,7 @@ const mire = {
         ],
         scales: { approach: +1, pond: +1 },
         composure: -1,
+        composureCost: 'the room is wetter than the corridor. by a degree.',
       };
     }
     return {
@@ -4866,6 +4967,7 @@ const mire = {
       ],
       scales: { pond: +1, approach: +1 },
       composure: -1,
+      composureCost: 'her hand on my collar was warm.',
     };
   },
 
@@ -4879,7 +4981,7 @@ const mire = {
         'she gives me the name of what she put in. !!she has not said it out loud in years.!!',
         'I take it with me.',
       ],
-      trait: 'bound',
+      item: 'small_bell',
     },
     {
       id: 'denial_held',
@@ -4889,7 +4991,7 @@ const mire = {
         'she has not turned. the floor is barely damp now. the pond is somewhere else, where it always was.',
         'she does not look at me when I leave. but the room is a room.',
       ],
-      trait: 'small_warmth',
+      item: 'worn_ribbon',
     },
     {
       id: 'weight_named',
@@ -4899,7 +5001,7 @@ const mire = {
         '!!she names it. she gives me the name.!!',
         'I close my hands around it. she lets me. ~~I have~~ I have a thing now I did not come in with.',
       ],
-      trait: 'remembered',
+      item: 'scrap_of_paper',
       scars: ['witnessed'],
     },
     {
@@ -4910,7 +5012,7 @@ const mire = {
         'her hand on my collar. the floor opens.',
         '!!I do not know what was at the bottom. I do not know whose name she spoke as I went under.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['witnessed', 'collapsed'],
     },
     {
@@ -4918,7 +5020,7 @@ const mire = {
       when: (p) => p.flags.left,
       title: 'you walk out',
       lines: ['I leave the room. the corridor is dry. ~~for now.~~'],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
@@ -5028,20 +5130,19 @@ const composer = {
       },
     },
   },
-  initialize(p) {
+  initialize(p, player) {
     p.scales.chord = r(3, 5);
     p.scales.silence = 0;
     p.scales.completion = r(2, 4);
     p.scales.tension = r(1, 3);
+    if (player?.scars?.includes('named'))     p.scales.tension = Math.min(10, p.scales.tension + 1);
+    if (player?.scars?.includes('witnessed')) p.scales.chord = Math.min(10, p.scales.chord + 1);
   },
 
   fileReveals: [
-    { line: 0, when: (p) => p.scales.silence >= 3 || p.scales.completion >= 4,
-      announce: 'a line of her file fills in. ~~composing in the day room since admission.~~' },
-    { line: 1, when: (p) => p.scales.completion >= 5 || p.scales.chord >= 6,
-      announce: '~~she holds the notes.~~ she does not write them down.' },
-    { line: 2, when: (p) => p.scales.completion >= 7 || p.scales.tension >= 5,
-      announce: 'the last line. **she does not look up.**' },
+    { announce: 'a line of her file fills in. ~~composing in the day room since admission.~~' },
+    { announce: '~~she holds the notes.~~ she does not write them down.' },
+    { announce: 'the last line. **she does not look up.**' },
   ],
 
   presented(p) {
@@ -5123,6 +5224,7 @@ const composer = {
             ],
             scales: { chord: +2, tension: +1, silence: -1 },
             composure: -1,
+            composureCost: 'her hand stopped above the keys. ~~not~~ not because of me.',
           };
         }
         if (p.scales.chord >= 7) {
@@ -5133,6 +5235,7 @@ const composer = {
             ],
             scales: { chord: -1, completion: -1, tension: +2 },
             composure: -2,
+            composureCost: 'one of the notes is wrong. it is the one I added.',
           };
         }
         return {
@@ -5169,6 +5272,7 @@ const composer = {
           ],
           scales: { tension: +2 },
           composure: -1,
+          composureCost: '!!the chord has gone wrong.!!',
         };
       },
     },
@@ -5197,6 +5301,7 @@ const composer = {
           ],
           scales: { silence: +1, tension: +2 },
           composure: -1,
+          composureCost: 'the room is humming. ~~the chord~~ the chord is in my chest.',
         };
       },
     },
@@ -5214,6 +5319,7 @@ const composer = {
           ],
           scales: { chord: -3, completion: -2, tension: +3 },
           composure: -1,
+          composureCost: 'her not-yet has gone on too long.',
         };
       },
     },
@@ -5348,6 +5454,7 @@ const composer = {
           ],
           scales: { chord: -2, tension: +2, completion: +1 },
           composure: -1,
+          composureCost: 'the lid is heavier than I thought.',
         },
         {
           label: 'I can\'t tell',
@@ -5379,6 +5486,7 @@ const composer = {
           scales: { chord: -3, completion: -2, tension: -2 },
           flags: { closed_lid: true },
           composure: -1,
+          composureCost: 'her hand stopped above the keys. ~~not~~ not because of me.',
         },
         {
           label: 'one more note',
@@ -5411,6 +5519,7 @@ const composer = {
         ],
         scales: { chord: -7, completion: -7, tension: +3 },
         composure: -2,
+        composureCost: 'one of the notes is wrong. it is the one I added.',
         flags: { finished_alone: true },
       };
     }
@@ -5429,7 +5538,7 @@ const composer = {
         'her hands are in her lap. mine are still on the keys. she puts hers over mine.',
         'we do not say anything. ~~for a long time.~~ for a long time.',
       ],
-      trait: 'remembered',
+      item: 'scrap_of_paper',
     },
     {
       id: 'closed_lid',
@@ -5439,7 +5548,7 @@ const composer = {
         'the lid is closed. she rests her hands on the wood. the room is quiet for the first time.',
         '!!she lets it be quiet.!!',
       ],
-      trait: 'sleepless',
+      item: 'sliver_of_glass',
     },
     {
       id: 'finished_alone',
@@ -5449,7 +5558,7 @@ const composer = {
         'the chord arrives. she does not look at me. she has finished what she came in to finish.',
         'I leave the room. ~~the chord follows me~~ the chord follows me for some hours.',
       ],
-      trait: 'unblinking',
+      item: 'photograph',
       scars: ['witnessed'],
     },
     {
@@ -5460,7 +5569,7 @@ const composer = {
         'her hands drop. she stares at the keys. the chord is in pieces around her.',
         '!!she has lost the place she was holding it from.!!',
       ],
-      trait: null,
+      item: null,
       scars: ['witnessed', 'failed'],
     },
     {
@@ -5468,7 +5577,7 @@ const composer = {
       when: (p) => p.flags.left,
       title: 'you walk out',
       lines: ['I close the door. the chord is humming behind me. ~~it always was.~~'],
-      trait: null,
+      item: null,
       scars: ['abandoned'],
     },
   ],
